@@ -24,12 +24,12 @@ networks:
 services:
   i2b2-web:
     container_name: i2b2-web
-    image: ${IMAGE_NAMESPACE}/i2b2/i2b2-web
-    # build:
-    #   context: ./web
-    #   dockerfile: Dockerfile
-    #   args:
-    #     WEB_TAG: ${WEB_TAG}
+    # image: ${IMAGE_NAMESPACE}/i2b2/i2b2-web
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        WEB_TAG: ${WEB_TAG}
     env_file:
       - .env
     networks:
@@ -55,12 +55,7 @@ services:
     networks:
       - backend
     depends_on:
-      i2b2-database:
-        condition: service_healthy
-    # secrets:
-    #   - DB_ADMIN_PASS
-    #   - DB_USER_PASS
-    #   - ENV_MULTILOAD
+      - i2b2-database
 
   # i2b2-api:
   #   container_name: i2b2-api
@@ -73,8 +68,7 @@ services:
   #   networks:
   #     - backend
   #   depends_on:
-  #     i2b2-database:
-  #       condition: service_healthy
+  #     - i2b2-database
 
   i2b2-database:
     container_name: i2b2-database
@@ -89,8 +83,3 @@ services:
     - .env-secrets
     networks:
       - backend
-    # secrets:
-    #   - DB_ADMIN_PASS
-    #   - DB_USER_PASS
-    #   - POSTGRES_PASSWORD
-    #   - ENV_MULTILOAD
