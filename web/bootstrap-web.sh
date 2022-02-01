@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-## Import the secrets as env vars
+## Import the secrets as env vars - when not using secrets, this is not run
 file_env() {
   local var="$1"
   local fileVar="${var}_FILE"
@@ -39,6 +39,10 @@ echo -e "...complete"
 
 ## Map upstream ENV vars
 export APP_ID=${WEB_FQDN}
+export ORGANISATION_NAME
+
+## Dump envs:
+echo -e "Env vars:\n $(env)"
 
 ## Customisation
 echo >&2 "Setting custom settings..."
