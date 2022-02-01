@@ -24,12 +24,12 @@ networks:
 services:
   i2b2-web:
     container_name: i2b2-web
-    # image: ${IMAGE_NAMESPACE}/i2b2/i2b2-web
-    build:
-      context: ./web
-      dockerfile: Dockerfile
-      args:
-        WEB_TAG: ${WEB_TAG}
+    image: ${IMAGE_NAMESPACE}/i2b2/i2b2-web
+    # build:
+    #   context: ./web
+    #   dockerfile: Dockerfile
+    #   args:
+    #     WEB_TAG: ${WEB_TAG}
     env_file:
       - .env
     networks:
