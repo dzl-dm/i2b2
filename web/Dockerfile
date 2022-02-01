@@ -4,11 +4,6 @@ FROM i2b2/i2b2-web:${WEB_TAG}
 ## System env
 ENV TZ=${TZ:-'Europe/Berlin'}
 
-## Application env vars:
-ENV ORGANISATION_NAME=${ORGANISATION_NAME:-'HarvardDemo'}
-ENV WEB_FQDN=${WEB_FQDN:-'localhost'}
-ENV INCLUDE_DEMO_DATA=${INCLUDE_DEMO_DATA:-'False'}
-
 WORKDIR /docker-entrypoint
 ## Run some generic fixes
 RUN cd /var/www/html/ && \

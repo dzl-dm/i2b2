@@ -39,10 +39,6 @@ echo -e "...complete"
 
 ## Map upstream ENV vars
 export APP_ID=${WEB_FQDN}
-export ORGANISATION_NAME
-
-## Dump envs:
-echo -e "Env vars:\n $(env)"
 
 ## Customisation
 echo >&2 "Setting custom settings..."
@@ -53,13 +49,14 @@ sed -i "s/#ServerName www.example.com:80/#ServerName www.example.com:80\nServerN
 if [ ${INCLUDE_DEMO_DATA} != "True" ]; then
     find  . -maxdepth 3 -type f -name i2b2_ui_config.js -exec sed -i 's/loginDefaultUsername : "demo"/loginDefaultUsername : ""/g' {} \; -exec sed -i 's/loginDefaultPassword : "demouser"/loginDefaultPassword : ""/g' {} \;
 fi
-# if timeout 15 ping -c 2 i2b2-api ; then
-#     echo >&2 "api server is available, adding proxy to apache config"
-#     cp /docker-entrypoint/conf/i2b2-api.conf /etc/httpd/conf.d/
-# fi
+if timeout 15 ping -c 2 i2b2-api ; then
+    echo >&2 "api server is available, adding proxy to apache config"
+    cp /docker-entrypoint/conf/i2b2-api.conf /etc/httpd/conf.d/
+fi
 cd -
 
 ## Now call the original/upstream entrypoint and append arguments
 echo -e "Starting apache web server..."
+sleep 1
 /bin/sh /run-httpd.sh
 # exec "$@"
