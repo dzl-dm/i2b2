@@ -57,6 +57,5 @@ cd -
 
 ## Now call the original/upstream entrypoint and append arguments
 echo -e "Starting apache web server..."
-sleep 1
 /bin/sh /run-httpd.sh
 # exec "$@"
