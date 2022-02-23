@@ -1,0 +1,12 @@
+## Project technical settings
+
+## Flask app context - muse be UPPER_CASE
+## SQLALCHEMY_DATABASE_URI is built from individual environment variables by default
+# SQLALCHEMY_DATABASE_URI: "postgresql+psycopg2://i2b2:ChangeMe@i2b2.database/i2b2"
+SQLALCHEMY_TRACK_MODIFICATIONS : False
+
+## These lower_case variables are ignored by flask's app.config context
+data_file: "/var/i2b2-meta/export.ttl"
+fuseki_url: "https://data.dzl.de/fuseki/cometar_test/data?default"
+max_processing_duration: 600 ## seconds
+

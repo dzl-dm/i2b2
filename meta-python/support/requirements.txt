@@ -1,0 +1,8 @@
+Flask
+# Flask-Migrate
+Flask-SQLAlchemy
+# Jinja2
+psycopg2-binary
+pyyaml
+# requests
+# SQLAlchemy
