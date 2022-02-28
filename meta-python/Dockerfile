@@ -15,14 +15,12 @@ COPY support/ /
 COPY src /src
 
 ENV LOG_CONF_PATH=${LOG_CONF_PATH:-'/config/logging.yaml'}
-ENV APP_CONF_PATH=${LOG_CONF_PATH:-'/config/config.yaml'}
+ENV APP_CONF_PATH=${APP_CONF_PATH:-'/config/config.yaml'}
 ENV generator_sparql_endpoint=${generator_sparql_endpoint}
 
 ENV I2B2DBHOST=${I2B2DBHOST:-i2b2.database}
 ENV I2B2DBPORT=${I2B2DBPORT:-5432}
 ENV I2B2DBNAME=${I2B2DBNAME:-i2b2}
 
-EXPOSE 5000
-
 ENV FLASK_APP=/src/listener.py
-CMD /bootstrap.sh && flask run -h 0.0.0.0 --reload
+CMD /bootstrap-meta.sh && flask run -h 0.0.0.0 --reload

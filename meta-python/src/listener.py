@@ -21,16 +21,20 @@ logger.debug("Logging loaded and configured")
 
 ## Import and configure the flask app
 from flask import Flask
-logger.debug("Flask modules loaded")
+logger.debug("Flask modules loaded, attempting to configure app with: {}".format(os.getenv('APP_CONF_PATH')))
 from default_config import Config as default_config
 app = Flask(__name__)
 app.config.from_object(default_config)
-app.config.from_file(os.getenv('APP_CONF_PATH'), load=yaml.load)
+# app.config.from_file("{}".format(os.getenv('APP_CONF_PATH')), load=yaml.load)
+
+logger.debug("SQLALCHEMY_DATABASE_URI: {}".format(app.config['SQLALCHEMY_DATABASE_URI']))
+logger.debug("FLASK_APP: {}".format(app.config['FLASK_APP']))
+logger.debug("FLASK_ENV: {}".format(app.config['FLASK_ENV']))
 
 ## import most modules after configuring the app
 # import db_connection
 import meta
-import model
+# import model
 import subprocess
 
 ## Global var(s)

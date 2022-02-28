@@ -5,6 +5,8 @@ The section for meta-data processing. Eg from CoMetaR
 import logging
 logger = logging.getLogger(__name__)
 
+# from flask import current_app as app
+
 from datetime import datetime as dt
 import model
 import os
@@ -12,23 +14,25 @@ import psycopg2
 import requests
 import time
 import yaml
+from sqlalchemy import sql as sqlalch
 
 app_settings:dict = {}
 with open(os.getenv("APP_CONF_PATH"), "r") as yaml_file:
     app_settings = yaml.safe_load(yaml_file)
 
-postgreSQL_pool = psycopg2.pool.SimpleConnectionPool(1, 20, user=os.getenv("DB_ADMIN_USER"),
-                                                         password=os.getenv("DB_ADMIN_PASS"),
-                                                         host=os.getenv("I2B2DBHOST"),
-                                                         port=os.getenv("I2B2DBPORT"),
-                                                         database=os.getenv("I2B2DBNAME"))
+# postgreSQL_pool = psycopg2.pool.SimpleConnectionPool(1, 20, user=os.getenv("DB_ADMIN_USER"),
+#                                                          password=os.getenv("DB_ADMIN_PASS"),
+#                                                          host=os.getenv("I2B2DBHOST"),
+#                                                          port=os.getenv("I2B2DBPORT"),
+#                                                          database=os.getenv("I2B2DBNAME"))
 
 def update_meta_from_cometar():
     """Pull data from fuseki component of CoMetaR, then convert to SQL and update i2b2 database"""
     # pull_fuseki_data()
     # ttl_to_sql()
     # sql_to_i2b2()
-    insert_test_demodata()
+    # insert_test_demodata()
+    insert_sql_test()
     return True
 
 def prepare_filesystem():
@@ -63,13 +67,31 @@ def insert_test_demodata():
     model.db.session.commit()
     pass
 
-class database_connection(object):
-    def __init__():
-        conn = None
-        try:
-            conn = psycopg2.connect("dbname = 'routing_template' user = 'postgres' host = 'localhost' password = '****'")
-        except psycopg2.DatabaseError, ex:
-            logger.error("I am unable to connect the database: {}".format(ex))
-            return False
-        pass
+def insert_sql_test():
+    """Test running sql file against database"""
+    logger.info("Attempting to run an sql file via sqlalchemy")
+    # test_file = "/var/tmp/meta/i2b2-sql/meta.sql"
+    test_file = "/var/tmp/meta/i2b2-sql/data.sql"
+    with open(test_file, 'r') as file:
+        sql_data = file.read()
+
+    ## Basic execution:
+    result = model.db.engine.execute(sqlalch.text(sql_data).execution_options(autocommit=True))
+
+    ## OR maybe I need to use it like this... api > 1.4
+    # with model.db.engine.connect() as connection:
+    #     result = connection.execute(sqlalch.text(sql_data))    
+
+    logger.info("Result from running sql file ({}): {}".format(test_file, result))
+    pass
+
+# class database_connection(object):
+#     def __init__():
+#         conn = None
+#         try:
+#             conn = psycopg2.connect("dbname = 'routing_template' user = 'postgres' host = 'localhost' password = '****'")
+#         except (psycopg2.DatabaseError, ex):
+#             logger.error("I am unable to connect the database: {}".format(ex))
+#             return False
+#         pass
 
