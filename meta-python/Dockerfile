@@ -23,4 +23,5 @@ ENV I2B2DBPORT=${I2B2DBPORT:-5432}
 ENV I2B2DBNAME=${I2B2DBNAME:-i2b2}
 
 ENV FLASK_APP=/src/listener.py
+## TODO: --reload is a debug/test option? Remove for prod
 CMD /bootstrap-meta.sh && flask run -h 0.0.0.0 --reload

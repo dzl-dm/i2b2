@@ -7,6 +7,14 @@ SQLALCHEMY_TRACK_MODIFICATIONS : False
 
 ## These lower_case variables are ignored by flask's app.config context
 data_file: "/var/i2b2-meta/export.ttl"
-fuseki_url: "https://data.dzl.de/fuseki/cometar_test/data?default"
+# fuseki_url: "https://data.dzl.de/fuseki/cometar_test/data?default"
+fuseki_url: "https://data.dzl.de/fuseki/cometar_live/query"
 max_processing_duration: 600 ## seconds
+generator_mappings:
+  "http://data.dzl.de/ont/dwh#": "dzl:"
+  "http://purl.bioontology.org/ontology/SNOMEDCT/": "S:"
+  "http://loinc.org/owl#": "L:"
+  "http://sekmi.de/histream/dwh#snomed": "S:"
+  "http://sekmi.de/histream/dwh#loinc": "L:"
 
+i2b2_path_prefix: "\i2b2"

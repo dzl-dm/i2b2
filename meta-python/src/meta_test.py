@@ -18,10 +18,16 @@ import time
 import yaml
 from sqlalchemy import sql as sqlalch
 
-## TODO: Use app context - the yaml file is now loaded there too
+
 app_settings:dict = {}
 with open(os.getenv("APP_CONF_PATH"), "r") as yaml_file:
     app_settings = yaml.safe_load(yaml_file)
+
+# postgreSQL_pool = psycopg2.pool.SimpleConnectionPool(1, 20, user=os.getenv("DB_ADMIN_USER"),
+#                                                          password=os.getenv("DB_ADMIN_PASS"),
+#                                                          host=os.getenv("I2B2DBHOST"),
+#                                                          port=os.getenv("I2B2DBPORT"),
+#                                                          database=os.getenv("I2B2DBNAME"))
 
 def update_meta_from_cometar():
     """Pull data from fuseki component of CoMetaR, then convert to SQL and update i2b2 database"""
@@ -146,71 +152,6 @@ def pull_fuseki_data3():
     jsonFile.close()
     app.logger.debug("HealthQuest CoMetaR data ({}): {}".format("json", data))
     return data
-
-def get_tree(node_name:str = "<http://data.dzl.de/ont/dwh#Patientdata>"):
-    """Get all children under a single node"""
-    
-    data = {"status_code": 200, "content": "test complete"}
-    return data
-
-def get_element(node_name:str = "<http://data.dzl.de/ont/dwh#PHQ4>") -> dict:
-    """Get a single node - with all its details"""
-    app.logger.info("Fetching the node data for '{}' and writing SQL".format(node_name))
-    import datetime
-    from queries import queries
-    # import i2b2_sql
-
-    dt_string = datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S")
-    
-    node_name = node_name.strip("<>")
-    element:dict = {}
-    element["name"] = queries.getName(node_name)
-    element["label"] = queries.getLabel(node_name)
-    element["displayLabel"] = queries.getDisplayLabel(node_name)
-    element["notations"] = queries.getNotations(node_name)
-    element["display"] = queries.getDisplay(node_name)
-    element["datatypeXml"] = queries.getDatatypeXml(node_name, dt_string)
-    element["description"] = queries.getDescription(node_name)
-    element["children"] = queries.getChildren(node_name)
-    app.logger.debug("Node data: {}".format(element))
-
-    # i2b2_sql.write_sql_for_node()
-    return element
-
-def get_node(node_name:str) -> dict:
-    """Query the node name (ideal for top level nodes)"""
-    app.logger.debug("fetching node data for: {}".format(node_name))
-    import json
-    import SPARQLWrapper
-    global app_settings
-
-    query_base = """
-        PREFIX skos:    <http://www.w3.org/2004/02/skos/core#>
-        PREFIX : <http://data.dzl.de/ont/dwh#>
-        PREFIX rdf:	<http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-        SELECT ?p ?o
-        {
-            <NODE_NAME> ?p ?o
-        }
-        """
-    sparql_query = query_base.replace("NODE_NAME", node_name)
-
-    sparql = SPARQLWrapper.SPARQLWrapper(app_settings["fuseki_url"])
-    sparql.setQuery(sparql_query)
-    sparql.setReturnFormat(SPARQLWrapper.JSON)
-
-    data = sparql.query().convert()
-    jsonString = json.dumps(data)
-    app.logger.debug("CoMetaR data for node '{}' (raw json): {}".format(node_name, jsonString))
-    node = {}
-    app.logger.debug("TODO: CoMetaR data for node '{}' (as dict): {}".format(node_name, node))
-
-    return node
-
-def get_child(concept:str):
-    """Return the child concept"""
-
-    return concept
 
 def sql_to_i2b2():
     """Run the SQL against the i2b2 postgres database to insert the rules"""

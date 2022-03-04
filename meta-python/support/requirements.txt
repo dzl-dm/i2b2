@@ -4,5 +4,7 @@ Flask-SQLAlchemy
 # Jinja2
 psycopg2-binary
 pyyaml
-# requests
+rdflib
+requests
+sparqlwrapper
 # SQLAlchemy
