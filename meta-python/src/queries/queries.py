@@ -115,8 +115,26 @@ def getDatatypeXml(node_name, fetch_time):
             datatype_xml = "'<ValueMetadata><Version>3.02</Version><CreationDateTime>{fetch_time}</CreationDateTime><DataType>{datatype}</DataType><Oktousevalues>Y</Oktousevalues></ValueMetadata>'".format(fetch_time=fetch_time, datatype=datatype)
         app.logger.debug("Found datatype for '{}': {}".format(node_name, datatype))
     except Exception as e:
-        app.logger.error("No display-label for concept: {}!\n{}".format(node_name, e))
+        app.logger.error("No datatype for concept: {}!\n{}".format(node_name, e))
     return _clean_label(datatype_xml)
+
+def getDatatypeRaw(node_name):
+    """Get the xml datatype of the given element"""
+    app.logger.debug("fetching node datatype property for {}".format(node_name))
+    sparql_query = _get_skeleton("query_datatype").replace("<CONCEPT>", "<"+node_name+">")
+    sparql.setQuery(sparql_query)
+    sparql.setReturnFormat(SPARQLWrapper.JSON)
+    data = sparql.query().convert()
+    jsonString = json.dumps(data)
+    app.logger.debug(jsonString)
+
+    try:
+        incoming_type = data["results"]["bindings"][0]["datatype"]["value"]
+        app.logger.debug("Found raw datatype for concept: {}".format(incoming_type))
+    except Exception as e:
+        incoming_type = ""
+        app.logger.error("No datatype for concept: {}!\n{}".format(node_name, e))
+    return _clean_label(incoming_type)
 
 def getDescription(node_name):
     """Get the description of the given element"""
@@ -165,6 +183,14 @@ def getNotations(node_name):
     notations = []
     for notation in data["results"]["bindings"]:
         notations.append(_clean_label(notation["notation"]["value"]))
+    notations = {}
+    for notation in data["results"]["bindings"]:
+        try:
+            lang = _clean_label(notation["notation"]["xml:lang"])
+        except Exception as e:
+            lang = ""
+        finally:
+            notations[_clean_label(notation["notation"]["value"])] = lang
     app.logger.debug("Found notation value for '{}': {}".format(node_name, notations))
     app.logger.debug(jsonString)
     return notations

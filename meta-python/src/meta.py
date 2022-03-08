@@ -2,6 +2,7 @@
 The section for meta-data processing. Eg from CoMetaR
 """
 
+from types import new_class
 from flask import current_app as app
 
 import logging
@@ -164,16 +165,32 @@ def get_element(node_name:str = "<http://data.dzl.de/ont/dwh#PHQ4>") -> dict:
     
     node_name = node_name.strip("<>")
     element:dict = {}
+    element["node_type"] = "concept" ## Would be available from the top_elements or child_elements queries
     element["name"] = queries.getName(node_name)
-    element["label"] = queries.getLabel(node_name)
-    element["displayLabel"] = queries.getDisplayLabel(node_name)
+    element["label"] = {queries.getLabel(node_name): "en"}
+    element["displayLabel"] = {queries.getDisplayLabel(node_name): "en"}
     element["notations"] = queries.getNotations(node_name)
     element["display"] = queries.getDisplay(node_name)
     element["datatypeXml"] = queries.getDatatypeXml(node_name, dt_string)
-    element["description"] = queries.getDescription(node_name)
+    element["datatype"] = queries.getDatatypeRaw(node_name)
+    element["description"] = {queries.getDescription(node_name): "en"}
     element["children"] = queries.getChildren(node_name)
     app.logger.debug("Node data: {}".format(element))
 
+    from model import MetaNode
+    new_elem = MetaNode.MetaNode(
+        node_uri = node_name,
+        name = element["name"],
+        node_type = element["node_type"],
+        pref_labels = element["label"],
+        display_labels = element["displayLabel"],
+        notations = element["notations"],
+        display_status = element["display"],
+        datatype = element["datatype"],
+        descriptions = element["description"]
+    )
+    app.logger.info(new_elem.meta_inserts)
+    app.logger.info(new_elem.data_inserts)
     # i2b2_sql.write_sql_for_node()
     return element
 

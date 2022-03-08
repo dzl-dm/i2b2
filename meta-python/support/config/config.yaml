@@ -17,4 +17,11 @@ generator_mappings:
   "http://sekmi.de/histream/dwh#snomed": "S:"
   "http://sekmi.de/histream/dwh#loinc": "L:"
 
-i2b2_path_prefix: "\i2b2"
+i2b2_path_prefix: "i2b2"
+i2b2_path_separator: '\'
+i2b2_multipath_container: "MULTI"
+sourcesystem: "test"
+meta_schema: "i2b2metadata"
+ontology_tablename: "i2b2"
+data_schema: "i2b2demodata"
+

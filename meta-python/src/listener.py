@@ -128,6 +128,14 @@ def test2():
     app.logger.info(response)
     return response
 
+@app.route('/test3/', defaults={'a1' : 'd1', 'a2' : 'd2', 'a3' : 'd3'})
+def test3(a1,a2,a3):
+    app.logger.info("Running test3 route...")
+    app.logger.debug("plain 'locals': {}".format(locals()))
+    app.logger.debug("'locals.__dir__': {}".format(locals().__dir__()))
+    # app.logger.debug("'locals.__dict__': {}".format(locals().__dict__))
+    app.logger.debug("'locals.items()': {}".format(locals().items()))
+
 @app.route('/info', methods=['GET'])
 def connection_stats():
     """
