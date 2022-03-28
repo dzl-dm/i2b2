@@ -4,196 +4,92 @@ Utilise the skeletons in resources
 """
 from flask import current_app as app
 
+import logging
+logger = logging.getLogger(__name__)
+
 import json
 import os
 import re
-import SPARQLWrapper
 
-sparql = SPARQLWrapper.SPARQLWrapper(app.config["fuseki_url"])
 sparql_skeletons:dict = None
 
-def getTopElements():
-    """Get all top level nodes"""
-    app.logger.debug("Fetching top-level elements")
+def top_elements(connection) -> dict:
+    """Query fuseki/sparql for the parent element names and types"""
+    logger.debug("Fetching top-level elements")
     sparql_query = _get_skeleton("query_top_elements")
-    sparql.setQuery(sparql_query)
-    sparql.setReturnFormat(SPARQLWrapper.JSON)
-    data = sparql.query().convert()
+
+    fuseki_endpoint = connection["prepared_request"].url
+    ## Simple request using session (for connection pooling/reuse)
+    response = connection["session"].get(fuseki_endpoint, params={"query": sparql_query}, timeout=connection["timeout"])
+    logger.debug("Response (session): {}".format(response.text))
+
+    data = response.json()
     jsonString = json.dumps(data)
 
     elements:dict = {}
     for child in data["results"]["bindings"]:
         elements[child["element"]["value"]] = child["type"]["value"]
-    app.logger.debug("Found top-level elements: {}".format(elements))
-    app.logger.debug(jsonString)
+    logger.debug("Found top-level elements: {}".format(elements))
+    logger.debug(jsonString)
     return elements
 
-def getChildren(node_name):
+def getChildren(connection, node_name):
     """Get all child elements of the given element"""
-    app.logger.debug("fetching node label property for {}".format(node_name))
+    logger.debug("fetching node children for {}".format(node_name))
     sparql_query = _get_skeleton("query_child_elements").replace("TOPELEMENT", "<"+node_name+">")
-    sparql.setQuery(sparql_query)
-    sparql.setReturnFormat(SPARQLWrapper.JSON)
-    data = sparql.query().convert()
+
+    fuseki_endpoint = connection["prepared_request"].url
+    response = connection["session"].get(fuseki_endpoint, params={"query": sparql_query}, timeout=connection["timeout"])
+
+    data = response.json()
     jsonString = json.dumps(data)
 
     children:dict = {}
     for child in data["results"]["bindings"]:
         children[child["element"]["value"]] = child["type"]["value"]
-    app.logger.debug("Found children for '{}': {}".format(node_name, children))
-    app.logger.debug(jsonString)
+    logger.debug("Found children for '{}': {}".format(node_name, children))
+    logger.debug(jsonString)
     return children
 
-def getParent(node_name):
-    """Get parent when skos:broader exists"""
-    pass
+def getAttributes(connection, node_uri):
+    """Use single query to get all the useful attributes of the node"""
+    logger.debug("fetching node attributes/properties for {}".format(node_uri))
+    sparql_query = _get_skeleton("query_attributes").replace("<CONCEPT>", "<"+node_uri+">")
 
-def getType(node_name):
-    """Get rdf type (skos:concept etc)"""
-    pass
+    fuseki_endpoint = connection["prepared_request"].url
+    response = connection["session"].get(fuseki_endpoint, params={"query": sparql_query}, timeout=connection["timeout"])
 
-def getLabel(node_name):
-    """Get the label of the given element"""
-    global sparql
-    app.logger.debug("fetching node label property for {}".format(node_name))
-    sparql_query = _get_skeleton("query_label").replace("<CONCEPT>", "<"+node_name+">")
-    sparql.setQuery(sparql_query)
-    sparql.setReturnFormat(SPARQLWrapper.JSON)
-    app.logger.debug("Running query: {}".format(sparql_query))
-    data = sparql.query().convert()
+    data = response.json()
     jsonString = json.dumps(data)
 
     try:
-        label = data["results"]["bindings"][0]["label"]["value"]
-        app.logger.debug("Found label for '{}': {}".format(node_name, label))
+        element:dict = {}
+        element["name"] = getName(node_uri)
+        singles_from_query = ["prefLabel", "displayLabel", "display", "datatype", "description"]
+        for attrib in singles_from_query:
+            if attrib in data["results"]["bindings"][0] and data["results"]["bindings"][0][attrib]["value"] != "":
+                element[attrib] = _clean_label(data["results"]["bindings"][0][attrib]["value"])
+            else:
+                logger.warn("No '{}' available for node: {}".format(attrib, node_uri))
+                element[attrib] = None
+
+        lists_from_query = ["notations", "units"]
+        ## NOTE: List delimiter in query is hard-coded as semi-colon ; TODO: Use a config and .replace()
+        for attrib in lists_from_query:
+            if attrib in data["results"]["bindings"][0]:
+                ## TODO: Adjust query to get the tag and add that as the value
+                element[attrib] = {_clean_label(k):None for k in data["results"]["bindings"][0][attrib]["value"].strip("[]").split(";")}
+                # element[attrib] = _clean_label(data["results"]["bindings"][0][attrib]["value"])
+            else:
+                logger.warn("No '{}' available for node: {}".format(attrib, node_uri))
+                element[attrib] = None
+
     except Exception as e:
-        app.logger.error("No prefLabel for concept: {}!\n{}".format(node_name, e))
-        label = "ERROR"
+        logger.error("Error processing attributes from query for concept: {}!\n{}".format(node_uri, e))
     finally:
-        app.logger.debug(jsonString)
-    return _clean_label(label)
-
-def getDisplayLabel(node_name):
-    """Get the display-label of the given element"""
-    app.logger.debug("fetching node display-label property for {}".format(node_name))
-    sparql_query = _get_skeleton("query_display_label").replace("<CONCEPT>", "<"+node_name+">")
-    sparql.setQuery(sparql_query)
-    sparql.setReturnFormat(SPARQLWrapper.JSON)
-    data = sparql.query().convert()
-    jsonString = json.dumps(data)
-    app.logger.debug(jsonString)
-
-    try:
-        display_label = data["results"]["bindings"][0]["displayLabel"]["value"]
-        app.logger.debug("Found display-label for '{}': {}".format(node_name, display_label))
-    except Exception as e:
-        app.logger.error("No display-label for concept: {}!\n{}".format(node_name, e))
-        display_label = None
-    finally:
-        app.logger.debug(jsonString)
-    return _clean_label(display_label)
-
-def getDatatypeXml(node_name, fetch_time):
-    """Get the xml datatype of the given element"""
-    app.logger.debug("fetching node datatype property for {}".format(node_name))
-    sparql_query = _get_skeleton("query_datatype").replace("<CONCEPT>", "<"+node_name+">")
-    sparql.setQuery(sparql_query)
-    sparql.setReturnFormat(SPARQLWrapper.JSON)
-    data = sparql.query().convert()
-    jsonString = json.dumps(data)
-    app.logger.debug(jsonString)
-
-    types = {"Integer": ["int", "integer"], "Float": ["float", "dec", "decimal"], "largeString": ["largestring"], "String": ["string", "str"]}
-    incoming_types = {v:k for k, l in types.items() for v in l}
-    app.logger.debug("incoming types reverse map: {}".format(incoming_types))
-
-    datatype_xml = "NULL"
-    try:
-        incoming_type = data["results"]["bindings"][0]["datatype"]["value"]
-        if incoming_type != "":
-            datatype = incoming_types.get(incoming_type, "String")
-            datatype_xml = "'<ValueMetadata><Version>3.02</Version><CreationDateTime>{fetch_time}</CreationDateTime><DataType>{datatype}</DataType><Oktousevalues>Y</Oktousevalues></ValueMetadata>'".format(fetch_time=fetch_time, datatype=datatype)
-        app.logger.debug("Found datatype for '{}': {}".format(node_name, datatype))
-    except Exception as e:
-        app.logger.error("No datatype for concept: {}!\n{}".format(node_name, e))
-    return _clean_label(datatype_xml)
-
-def getDatatypeRaw(node_name):
-    """Get the xml datatype of the given element"""
-    app.logger.debug("fetching node datatype property for {}".format(node_name))
-    sparql_query = _get_skeleton("query_datatype").replace("<CONCEPT>", "<"+node_name+">")
-    sparql.setQuery(sparql_query)
-    sparql.setReturnFormat(SPARQLWrapper.JSON)
-    data = sparql.query().convert()
-    jsonString = json.dumps(data)
-    app.logger.debug(jsonString)
-
-    try:
-        incoming_type = data["results"]["bindings"][0]["datatype"]["value"]
-        app.logger.debug("Found raw datatype for concept: {}".format(incoming_type))
-    except Exception as e:
-        incoming_type = ""
-        app.logger.error("No datatype for concept: {}!\n{}".format(node_name, e))
-    return _clean_label(incoming_type)
-
-def getDescription(node_name):
-    """Get the description of the given element"""
-    app.logger.debug("fetching node display property for {}".format(node_name))
-    sparql_query = _get_skeleton("query_description").replace("<CONCEPT>", "<"+node_name+">")
-    sparql.setQuery(sparql_query)
-    sparql.setReturnFormat(SPARQLWrapper.JSON)
-    data = sparql.query().convert()
-    jsonString = json.dumps(data)
-
-    description = data["results"]["bindings"][0]["description"]["value"]
-    app.logger.debug("Found display value for '{}': {}".format(node_name, description))
-    app.logger.debug(jsonString)
-    return _clean_label(description)
-
-def getDisplay(node_name):
-    """Get the display-mode information of the given element"""
-    app.logger.debug("fetching node display property for {}".format(node_name))
-    sparql_query = _get_skeleton("query_display").replace("<CONCEPT>", "<"+node_name+">")
-
-    sparql.setQuery(sparql_query)
-    sparql.setReturnFormat(SPARQLWrapper.JSON)
-    data = sparql.query().convert()
-    jsonString = json.dumps(data)
-
-    try:
-        display = data["results"]["bindings"][0]["display"]["value"]
-        app.logger.debug("Found display value for '{}': {}".format(node_name, display))
-    except Exception as e:
-        app.logger.error("No display for concept: {}!\n{}".format(node_name, e))
-        display = None
-    finally:
-        app.logger.debug(jsonString)
-    return _clean_label(display)
-
-def getNotations(node_name):
-    """Get the notations of the given element"""
-    app.logger.debug("fetching node notation propert(-y,-ies) for {}".format(node_name))
-    sparql_query = _get_skeleton("query_notations").replace("<CONCEPT>", "<"+node_name+">")
-
-    sparql.setQuery(sparql_query)
-    sparql.setReturnFormat(SPARQLWrapper.JSON)
-
-    data = sparql.query().convert()
-    jsonString = json.dumps(data)
-    notations = []
-    for notation in data["results"]["bindings"]:
-        notations.append(_clean_label(notation["notation"]["value"]))
-    notations = {}
-    for notation in data["results"]["bindings"]:
-        try:
-            lang = _clean_label(notation["notation"]["xml:lang"])
-        except Exception as e:
-            lang = ""
-        finally:
-            notations[_clean_label(notation["notation"]["value"])] = lang
-    app.logger.debug("Found notation value for '{}': {}".format(node_name, notations))
-    app.logger.debug(jsonString)
-    return notations
+        logger.debug(jsonString)
+        logger.debug("Node data: {}".format(element))
+    return element
 
 def _clean_label(label:str) -> str:
     """Clean charachters we don't want in the database"""
@@ -209,30 +105,32 @@ def _clean_label(label:str) -> str:
 
 def getName(element_uri:str, include_prefix:bool = True) -> str:
     """Get the name portion of the element - replace prefix url with shorthand where possible"""
+    ## TODO: Automate getting @prefix definitions from fuseki
     name = element_uri
     for k, v in app.config["generator_mappings"].items():
         name = name.replace(k, v)
     if not include_prefix:
         name = name.split(":")[1]
-    app.logger.debug("Name of element ({}): {}".format(element_uri, name))
+    logger.debug("Name of element ({}): {}".format(element_uri, name))
     return name
 
 def _get_skeleton(query_name:str) -> str:
     """Read the file based on query_name and return its contents - cache in global dict"""
     global sparql_skeletons
-    app.logger.debug("Fetching skeleton query for: {}".format(query_name))
-    sparql_skeleton = ""
+    # logger.debug("Fetching skeleton query for: {}".format(query_name))
     if sparql_skeletons and query_name in sparql_skeletons:
-        app.logger.info("Found cached skeleton: {}".format(sparql_skeleton))
+        # logger.info("Found cached skeleton: {}".format(sparql_skeletons[query_name]))
         return sparql_skeletons[query_name]
+    ## TODO: Define in config!
     query_file = "/src/resources/{}.txt".format(query_name)
+    sparql_skeleton = ""
     if not os.path.exists(query_file):
-        app.logger.warn("Could not find skeleton query for: {} - using filename: [{}] -> {}".format(query_name, os.getcwd(), query_file))
+        logger.warn("Could not find skeleton query for: {} - using filename: [{}] -> {}".format(query_name, os.getcwd(), query_file))
         return sparql_skeleton
     with open(query_file, 'r') as file:
         sparql_skeleton = file.read()
     if not sparql_skeletons:
         sparql_skeletons = {}
     sparql_skeletons[query_name] = sparql_skeleton
-    app.logger.info("Found file-based skeleton ({}):\n{}".format(query_file, sparql_skeleton))
+    logger.info("Found file-based skeleton ({}):\n{}".format(query_file, sparql_skeleton))
     return sparql_skeleton

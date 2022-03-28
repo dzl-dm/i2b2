@@ -7,11 +7,16 @@ SQLALCHEMY_TRACK_MODIFICATIONS : False
 
 ## These lower_case variables are ignored by flask's app.config context
 data_file: "/var/i2b2-meta/export.ttl"
+## TODO: Use the .env "generator_sparql_endpoint"
 # fuseki_url: "https://data.dzl.de/fuseki/cometar_test/data?default"
-fuseki_url: "https://data.dzl.de/fuseki/cometar_live/query"
+# fuseki_url: "https://data.dzl.de/fuseki/cometar_live/query"
+# fuseki_url: "http://dwh.proxy/fuseki/cometar_live/query"
+# fuseki_url: "http://172.17.0.1:81/fuseki/cometar_live/query"
+
 max_processing_duration: 600 ## seconds
 generator_mappings:
-  "http://data.dzl.de/ont/dwh#": "dzl:"
+  "http://data.custom.de/ont/dwh#": ":"
+  "http://data.dzl.de/ont/dwh#": "DZL:"
   "http://purl.bioontology.org/ontology/SNOMEDCT/": "S:"
   "http://loinc.org/owl#": "L:"
   "http://sekmi.de/histream/dwh#snomed": "S:"
@@ -25,3 +30,41 @@ meta_schema: "i2b2metadata"
 ontology_tablename: "i2b2"
 data_schema: "i2b2demodata"
 
+csv_out_dir: "/var/metadata-translation/"
+
+sql_col_object_property_map:
+  "c_fullname": "concept_long"
+  "c_name": "pref_label"
+  "c_visualattributes": "visual_attribute"
+  "c_basecode": "notation"
+  "c_metadataxml": "datatype_xml"
+  "c_dimcode": "concept_long"
+  "c_tooltip": "description"
+  "m_applied_path": "applied_path"
+  "download_date": "fetch_timestamp"
+  "sourcesystem_cd": "sourcesystem"
+
+  "c_table_name": "ontology_tablename"
+
+  "concept_path": "concept_long"
+  "concept_cd": "notation"
+  "modifier_path": "concept_long"
+  "modifier_cd": "notation"
+  "name_char": "pref_label"
+
+fixed_value_cols:
+  "c_synonym_cd": "N"
+  "c_totalnum": ""
+  "c_columndatatype": "T"
+  "c_operator": "LIKE"
+  "c_comment": ""
+  "update_date": "current_timestamp"
+  "import_date": "current_timestamp"
+  # "sourcesystem_cd": ""
+  "valuetype_cd": ""
+  "m_exclusion_cd": ""
+  "c_path": ""
+  "c_symbol": ""
+  "c_dimtablename": "concept_dimension"
+  "c_protected_access": "N"
+  "c_ontology_protection": ""

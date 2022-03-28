@@ -4,9 +4,14 @@ FROM python:3.10-slim-bullseye
 ENV TZ=${TZ:-'Europe/Berlin'}
 
 ARG DEBIAN_FRONTEND="noninteractive"
+## Needed if using pycurl
+# RUN apt update && \
+#     apt install -y build-essential libcurl4-openssl-dev libssl-dev && \
+#     rm -rf /var/lib/apt/lists/*
 
 ## Update and install project requirements from requirements.txt (copy separately to entire src to aid docker layer cache reuse)
 COPY support/requirements.txt /requirements.txt
+RUN python -m pip install --upgrade pip
 RUN pip install --no-cache-dir -r /requirements.txt
 
 ## Bootstrap to allow secrets and utilise env variables correctly etc

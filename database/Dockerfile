@@ -2,7 +2,8 @@ FROM alpine:3.14 AS i2b2-data-fetch
 ## Multi-stage build to add remote archive is supposed to be more efficient than curl from the main image
 
 WORKDIR /i2b2-data
-ADD https://codeload.github.com/i2b2/i2b2-data/tar.gz/refs/tags/v1.7.12a.0001 ./i2b2-data.tar.gz
+# ADD https://codeload.github.com/i2b2/i2b2-data/tar.gz/refs/tags/v1.7.12a.0001 ./i2b2-data.tar.gz
+RUN wget https://codeload.github.com/i2b2/i2b2-data/tar.gz/refs/tags/v1.7.12a.0001 ./i2b2-data.tar.gz
 RUN tar xzf ./i2b2-data.tar.gz
 RUN rm -rf ./i2b2-data.tar.gz 
 

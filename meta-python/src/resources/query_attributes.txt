@@ -1,0 +1,35 @@
+PREFIX skos: 	<http://www.w3.org/2004/02/skos/core#>
+PREFIX : <http://data.dzl.de/ont/dwh#>
+PREFIX rdf:	<http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX dc: <http://purl.org/dc/elements/1.1/>
+PREFIX loinc: <http://loinc.org/owl#>
+PREFIX dwh:    <http://sekmi.de/histream/dwh#> 
+SELECT (coalesce(?prefLabel1,coalesce(?prefLabel2,'')) as ?prefLabel) (coalesce(?displayLabel1,coalesce(?displayLabel2,'')) as ?displayLabel) (coalesce(?description1,coalesce(?description2,'')) as ?description) ?display (concat('[', group_concat(distinct ?notation; separator='; '), ']') as ?notations) ?datatype (concat('[', group_concat(distinct ?unit; separator='; '), ']') as ?units)
+{
+    OPTIONAL { <CONCEPT> skos:prefLabel ?prefLabel1 . FILTER ( lang(?prefLabel1) = 'en' ) }
+    OPTIONAL { <CONCEPT> skos:prefLabel ?prefLabel2 . FILTER ( lang(?prefLabel2) = 'de' ) }
+    OPTIONAL { <CONCEPT> :displayLabel ?displayLabel1 . FILTER ( lang(?displayLabel1) = 'en' ) }
+    OPTIONAL { <CONCEPT> :displayLabel ?displayLabel2 . FILTER ( lang(?displayLabel2) = 'de' ) }
+    OPTIONAL { <CONCEPT> dc:description ?description1 . FILTER ( lang(?description1) = 'en' ) }
+    OPTIONAL { <CONCEPT> dc:description ?description2 . FILTER ( lang(?description2) = 'de' ) }
+  	OPTIONAL { <CONCEPT> dwh:display ?display . }
+  	OPTIONAL { <CONCEPT> skos:notation ?notation . }
+  	OPTIONAL { <CONCEPT> :unit ?unit . }
+  	OPTIONAL { <CONCEPT> dwh:restriction ?restriction .
+      BIND (
+        IF(?restriction = dwh:integerRestriction, "integer",
+          IF(?restriction = dwh:floatRestriction, "float",
+            IF(?restriction = dwh:partialDateRestriction, "partialDate",
+              IF(?restriction = dwh:largeStringRestriction, "largeString",
+               IF(?restriction = dwh:dateRestriction, "date", "string")
+              )
+            )
+          )
+        ) AS ?datatype
+      )
+  	}
+}
+group by ?prefLabel ?displayLabel ?description ?datatype ?display
+?prefLabel1 ?prefLabel2
+?displayLabel1 ?displayLabel2
+?description1 ?description2

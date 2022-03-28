@@ -1,0 +1,11 @@
+result_type_id;name;description;display_type_id;visual_attribute_type_id;user_role_cd;classname
+3;XML;Generic query result;CATNUM;LH;NULL;NULL
+1;PATIENTSET;Patient Set;LIST;LA;NULL;edu.harvard.i2b2.crc.dao.setfinder.QueryResultPatientSetGenerator
+2;PATIENT_ENCOUNTER_SET;Encounter Set;LIST;LA;NULL;edu.harvard.i2b2.crc.dao.setfinder.QueryResultEncounterSetGenerator
+4;PATIENT_COUNT_XML;Number of Patients;CATNUM;LA;NULL;edu.harvard.i2b2.crc.dao.setfinder.QueryResultPatientCountGenerator
+5;PATIENT_GENDER_COUNT_XML;Gender Breakdown;CATNUM;LA;NULL;edu.harvard.i2b2.crc.dao.setfinder.QueryResultGenerator
+6;PATIENT_VITALSTATUS_COUNT_XML;Vital Status Patient Breakdown;CATNUM;LA;NULL;edu.harvard.i2b2.crc.dao.setfinder.QueryResultGenerator
+8;PATIENT_AGE_COUNT_XML;Age Patient Breakdown;CATNUM;LA;NULL;edu.harvard.i2b2.crc.dao.setfinder.QueryResultGenerator
+9;PATIENT_PHENOTYPE_COUNT_XML;Phenotype Breakdown;CATNUM;LA;NULL;edu.harvard.i2b2.crc.dao.setfinder.QueryResultGenerator
+110;PATIENT_SITE_COUNT_XML;DZL Site Breakdown;CATNUM;LA;NULL;edu.harvard.i2b2.crc.dao.setfinder.QueryResultPatientSQLCountGenerator
+111;PATIENT_SOURCE_COUNT_XML;DZL Source Breakdown;CATNUM;LA;NULL;edu.harvard.i2b2.crc.dao.setfinder.QueryResultPatientSQLCountGenerator

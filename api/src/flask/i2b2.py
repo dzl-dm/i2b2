@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 logger.debug("Logging loaded and configured")
 
 from flask import Flask
+from flask import request
 from flask_accept import accept
 logger.debug("Flask modules loaded")
 
@@ -46,7 +47,15 @@ def stats():
 def updatemeta():
     """Make a basic http request to the meta container which will then handle the translation of incoming meta-data to i2b2"""
     logger.info("Updating i2b2 with CoMetaR metadata...")
-    meta_update_endpoint = "http://{}:5000/".format(os.getenv("META_SERVER"))
+    
+    ## TODO: Use requesting IP and/or fuseki endpoint (to be sent as parameter?) to allow collecting data from multiple CoMetaR's
+    logger.debug("Request from: {}".format(request.remote_addr))
+    ## Winner below
+    logger.debug("OR maybe request from: {}".format(request.environ.get('HTTP_X_REAL_IP', request.remote_addr)))
+    ## Winner above
+    logger.debug("OR maybe request from: {}".format(request.environ['REMOTE_ADDR']))
+
+    meta_update_endpoint = "http://{}:5000/?fuseki_endpoint={}".format(os.getenv("META_SERVER"), os.getenv("generator_sparql_endpoint"))
     logger.debug("Forwarding request to responsible container: {}".format(meta_update_endpoint))
     meta_response = requests.get(meta_update_endpoint)
     result = [meta_response.ok, meta_response.text]

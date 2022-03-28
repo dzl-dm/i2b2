@@ -3,6 +3,9 @@ Generate SQL statements to insert elements into i2b2 database
 """
 from flask import current_app as app
 
+import logging
+app.logger = logging.getLogger(__name__)
+
 def write_sql_for_node(c_hlevel, notations, concept_long, label, datatypexml, description, isModifier, appliedPath, current_timestamp, visualAttribute, isRootElement, displayLabel, children):
     """Write statements for concept. In case of not exactly one concept notation, String notation will be "NULL"."""
 
