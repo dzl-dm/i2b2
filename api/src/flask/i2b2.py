@@ -43,11 +43,17 @@ def stats():
     result = stats.get_stats()
     return "<html><body><p>Exitcode: "+str(result[1])+"</p><p>Message Log:<br/>"+result[0].replace("\n","<br/>")+"</p></body></html>"
 
-@app.route('/updatemeta')
-def updatemeta():
+@app.route('/updatemeta/<src_id>')
+def updatemeta(src_id:str = None):
     """Make a basic http request to the meta container which will then handle the translation of incoming meta-data to i2b2"""
-    logger.info("Updating i2b2 with CoMetaR metadata...")
-    
+    if source_id is None:
+        source_id = request.args.get('source_id')
+    logger.info("Updating i2b2 metadata from source: '{}'...".format(source_id))
+    if source_id is None:
+        message = "Client must supply a source_id - use \"all\" to update all known sources"
+        logger.error(message)
+        return "<html><body><p>Success: False</p><p>Message Log:<br/>Code: 400<br/>Message: {}</p></body></html>\n".format(message)
+
     ## TODO: Use requesting IP and/or fuseki endpoint (to be sent as parameter?) to allow collecting data from multiple CoMetaR's
     logger.debug("Request from: {}".format(request.remote_addr))
     ## Winner below
@@ -55,9 +61,37 @@ def updatemeta():
     ## Winner above
     logger.debug("OR maybe request from: {}".format(request.environ['REMOTE_ADDR']))
 
-    meta_update_endpoint = "http://{}:5000/?fuseki_endpoint={}".format(os.getenv("META_SERVER"), os.getenv("generator_sparql_endpoint"))
-    logger.debug("Forwarding request to responsible container: {}".format(meta_update_endpoint))
+    # meta_update_endpoint = "http://{meta_server}:5000/single?source_id={src_id}".format(
+    #     meta_server = os.getenv("META_SERVER"),
+    #     src_id = os.getenv("generator_sparql_endpoint")
+    #     )
+    # logger.debug("Forwarding request to responsible container: {}".format(meta_update_endpoint))
+    # meta_response = requests.get(meta_update_endpoint)
+    meta_fetch = "http://{meta_server}:5000/fetch-and-generate-intermediate-csv?source_id={src_id}".format(
+        meta_server = os.getenv("META_SERVER"),
+        src_id = os.getenv("generator_sparql_endpoint")
+        )
+    meta_load = "http://{meta_server}:5000/load-intermediate-csv-to-postgres?source_id={src_id}".format(
+        meta_server = os.getenv("META_SERVER"),
+        src_id = os.getenv("generator_sparql_endpoint")
+        )
+    meta_count_patients = "http://{meta_server}:5000/update-patient-counts".format(
+        meta_server = os.getenv("META_SERVER"),
+        src_id = os.getenv("generator_sparql_endpoint")
+        )
     meta_response = requests.get(meta_update_endpoint)
+
     result = [meta_response.ok, meta_response.text]
     logger.debug("Updade of meta data complete: {}".format(result))
     return "<html><body><p>Success: "+str(result[0])+"</p><p>Message Log:<br/>"+result[1].replace("\n","<br/>")+"</p></body></html>\n"
+
+@app.route('/flushmeta')
+def flushmeta():
+    """Make a basic http request to the meta container which will then handle the translation of incoming meta-data to i2b2"""
+
+    meta_update_endpoint = "http://{meta_server}:5000/flush?source_id={src_id}".format(
+        meta_server = os.getenv("META_SERVER"),
+        src_id = os.getenv("generator_sparql_endpoint")
+        )
+    logger.debug("Forwarding request to responsible container: {}".format(meta_update_endpoint))
+    meta_response = requests.get(meta_update_endpoint)

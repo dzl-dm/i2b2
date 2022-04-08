@@ -53,10 +53,8 @@ def _get_prepped_request(fuseki_endpoint:str):
 
 def get_database_connection(database_host:str, database_name:str, database_user:str, database_password):
     """Get a connection to the database which we can reuse elsewhere"""
-    result = False
     logger.debug("Connection to db...")
     try:
-        ## TODO: get details from env/settings
         conn = psycopg2.connect (
             host = database_host,
             dbname = database_name,
@@ -64,10 +62,7 @@ def get_database_connection(database_host:str, database_name:str, database_user:
             password = database_password
         )
         logger.info("Connection to postgres successful! {}".format(conn))
-        # cursor = conn.cursor()
-        # logger.debug("Cursor created! {}".format(cursor))
     except:
         logger.warn("Connection to postgres UN-successful! {}".format(conn))
         conn = None
-
-    return
+    return conn

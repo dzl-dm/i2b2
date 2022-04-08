@@ -97,10 +97,13 @@ def _clean_label(label:str) -> str:
         return None
     _RE_COMBINE_WHITESPACE = re.compile(r"\s+")
 
-    label = label.replace("'", "''")
+    ## The database connection library (psycopg) takes care of most things!
+    # label = label.replace("'", "''")
+    ## TODO: Is it cleaner to let the library handle quotations? (but wait until we have the same output as old system)
     label = label.replace("\"", "&quot;")
-    # label = label.replace("\\s+", " ")
-    label = _RE_COMBINE_WHITESPACE.sub(" ", label).strip()
+    ## TODO: Existing export has trailing spaces, so don't strip them yet!
+    # label = _RE_COMBINE_WHITESPACE.sub(" ", label).strip()
+    label = _RE_COMBINE_WHITESPACE.sub(" ", label)
     return label
 
 def getName(element_uri:str, include_prefix:bool = True) -> str:

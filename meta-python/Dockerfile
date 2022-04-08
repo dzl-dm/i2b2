@@ -21,7 +21,6 @@ COPY src /src
 
 ENV LOG_CONF_PATH=${LOG_CONF_PATH:-'/config/logging.yaml'}
 ENV APP_CONF_PATH=${APP_CONF_PATH:-'/config/config.yaml'}
-ENV generator_sparql_endpoint=${generator_sparql_endpoint}
 
 ENV I2B2DBHOST=${I2B2DBHOST:-i2b2.database}
 ENV I2B2DBPORT=${I2B2DBPORT:-5432}

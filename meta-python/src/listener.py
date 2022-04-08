@@ -8,7 +8,6 @@ import logging
 import logging.config
 import os
 from queries import connection
-from threading import local
 import yaml
 print("Basic imports done")
 if not os.path.isdir("/var/log/meta/"):
@@ -40,7 +39,10 @@ app.config.from_object(default_config)
 ## Load user file settings
 load_settings(app)
 app.logger.debug("Flask app loaded and configured with: {}".format(os.getenv('APP_CONF_PATH')))
+## TODO: Load .env based settings (which are needed when we don't want to rebuild the docker container!)
+## TODO: Or maybe better to mount the yaml config?
 
+import meta
 
 ## Global var(s)
 ## TODO: Track state for each source_id?
@@ -60,7 +62,7 @@ def index(fuseki_endpoint:str = None, source_id:str = None):
 
 @app.route('/fetch')
 def fetch(fuseki_endpoint:str = None, source_id:str = None):
-    """Fetch and serialise (as JSON files) the metadata"""
+    """Fetch and serialise (as CSV files) the metadata"""
     app.logger.info("Running fetch route to fetch metadata from the fuseki_endpoint '{}'...".format(fuseki_endpoint))
     ## TODO: Allow fetching from multiple sources
         ## TODO: Protect against concurrent fetching from the same source/source_id
@@ -68,9 +70,45 @@ def fetch(fuseki_endpoint:str = None, source_id:str = None):
 
 @app.route('/flush')
 def flush(source_id:str = None):
-    """Flush any existing data with the given source id - both local files and i2b2 database"""
+    """Flush any existing data with the given source id - both local files and i2b2 database?"""
     app.logger.info("Running flush route to remove metadata with source_id '{}' from i2b2 and local files...".format(source_id))
     ## TODO: Should we allow flushing local files and database separately?
+    response = {}
+    response['status_code'] = 500
+    response['content'] = ""
+    if source_id is None:
+        source_id = request.args.get('source_id')
+    if source_id:
+        app.logger.info("Attempting to remove data associated with source: {}".format(source_id))
+        try:
+            db_conn = connection.get_database_connection(
+                os.getenv("I2B2DBHOST"),
+                os.getenv("I2B2DBNAME"),
+                os.getenv("DB_ADMIN_USER"),
+                os.getenv("DB_ADMIN_PASS")
+            )
+            if meta.clean_sources_in_database(db_conn, [source_id]):
+                db_conn.commit()
+                response['status_code'] = 200
+                response['content'] = "Source data removed from database for source_id: {}".format(source_id)
+            else:
+                db_conn.rollback()
+                response['status_code'] = 500
+                response['content'] = "Unable to clean source data in database for source_id: {}".format(source_id)
+        except:
+            db_conn.rollback()
+            app.logger.error("Error flushing data for source_id: {}\n{}".format(source_id, Exception))
+        finally:
+            db_conn.close()
+    else:
+        response['status_code'] = 500
+        response['content'] = "source_id not provided: {}".format(source_id)
+    return response
+
+@app.route('/rename')
+def rename(existing_source_id:str = None, new_source_id:str = None):
+    """Rename entries with matching source_id"""
+    app.logger.info("Renaming database entries with source_id '{}' to: {}".format(existing_source_id, new_source_id))
     pass
 
 @app.route('/update')
@@ -87,96 +125,122 @@ def update(source_ids:list = None):
 @app.route('/single')
 def single(fuseki_endpoint:str = None, source_id:str = None):
     """Run end-to-end for a single source id - no intermediate output"""
-    # static_locals = locals().copy()
-    # app.logger.debug("static 'locals': {}".format(static_locals))
-    # app.logger.debug("query_string: {}".format(request.query_string))
-    # ## For when params are supplied via ?param1=value1&param2=value2
-    # for param, val in static_locals.items():
-    #     app.logger.debug("Param '{}': {}".format(param, val))
-    #     if val is None:
-    #         val = request.args.get(param)
-    #         app.logger.debug("Updating param '{}' to: {}".format(param, val))
-    #         # app.logger.debug("Updating param '{}' to: {}".format(param, request.args.get(param)))
-    #         app.logger.debug("Running: {}".format(f'{param}="{val}"'))
-    #         exec(f'{param}="{val}"')
-    # app.logger.debug("plain 'locals'2: {}".format(locals()))
-    # app.logger.debug("fuseki_endpoint: {}".format(fuseki_endpoint))
-
     app.logger.info("Running single route to update i2b2 with metadata from a single source...")
     ## For when params are supplied via ?param1=value1&param2=value2
     if fuseki_endpoint is None:
         fuseki_endpoint = request.args.get('fuseki_endpoint')
     if source_id is None:
         source_id = request.args.get('source_id')
-    import meta
 
-    ## For when params are supplied via ?param1=value1&param2=value2
-    # if fuseki_endpoint is None:
-    #     fuseki_endpoint = request.args.get('fuseki_endpoint')
-    # if source_id is None:
-    #     source_id = request.args.get('source_id')
     app.logger.info("Supplied vars...\nfuseki_endpoint: {}\nsource_id: {}".format(fuseki_endpoint, source_id))
-    # app.logger.info("Supplied vars (via request args)...\nfuseki_endpoint: {}\nsource_id: {}".format(request.args.get('fuseki_endpoint'), request.args.get('source_id')))
 
-    ## TODO: Return error when endpoint or source_id not provided
-    if fuseki_endpoint is None or source_id is None:
-        ## Data passed to this container is from the trusted internal docker application network, so we don't check it again - the api checks the endpoint and source are valid 
-        app.logger.error("Route must be provided with a fuseki_endpoint and source_id! Using defaults...")
-        fuseki_endpoint = "http://dwh.proxy/fuseki/cometar_live/query"
-        source_id = "test"
-    result = None
     response = {}
     response['status_code'] = 500
     response['content'] = ""
-    result = meta.pull_fuseki_datatree(fuseki_endpoint, source_id)
-    response['content'] += "{}\n".format(result)
+    if source_id in app.config["fuseki_sources"].keys():
+        fuseki_endpoint = app.config["fuseki_sources"][source_id]
+        app.logger.debug("Set endpoint based on recognised source ({}): {}".format(source_id, fuseki_endpoint))
+    elif source_id in app.config["local_file_sources"].keys():
+        app.logger.debug("Forwarding request for file-based query update: {}".format(source_id))
+        return custom_query(source_id)
+    else:
+        app.logger.error("source_id ({}) is not recognised, will not process any further!".format(source_id))
+        response['content'] += "{}\n".format("Must provide a valid source_id ({})!".format(source_id))
+        response['status_code'] = 500
+        return response
 
-    ## TODO: Write objects to flat structured CSV files - 1 per table
+    ## TODO: Return error when endpoint or source_id not provided
+    # if fuseki_endpoint is None or source_id is None:
+    #     ## Data passed to this container is from the trusted internal docker application network, so we don't check it again - the api checks the endpoint and source are valid 
+    #     app.logger.error("Route must be provided with a fuseki_endpoint and source_id! Using defaults...")
+    #     fuseki_endpoint = "http://dwh.proxy/fuseki/cometar_live/query"
+    #     source_id = "test"
+
+    result = meta.pull_fuseki_datatree(fuseki_endpoint, source_id)
+    if result:
+        response['content'] += "{} - {}\n".format("Data retrieved from fuseki", fuseki_endpoint)
+        response['status_code'] = 200
+    else:
+        response['content'] += "{}\n".format("Error in retrieving or processing fuseki data!")
+        response['status_code'] = 500
+        return response
+
+    ## Write objects to flat structured CSV files - 1 per table
         ## Filename includes source_id
     all_trees = []
     for tree in result[source_id]:
         all_trees.append(tree.whole_tree_csv())
+    app.logger.debug("All trees for source '{}': {}".format(source_id, all_trees))
     combined_tree = meta.combine_csv_trees(all_trees)
-    meta.write_csv(combined_tree, source_id, app.config["csv_out_dir"])
-    response['content'] += "{}\n".format("CSV written")
+    if meta.write_csv(combined_tree, source_id, app.config["csv_out_dir"]):
+        response['content'] += "{}\n".format("CSV written")
+        response['status_code'] = 200
+    else:
+        response['content'] += "{}\n".format("CSV writing FAILED!")
+        response['status_code'] = 500
+        return response
 
-    # sql_trees = {"meta": "", "data": ""}
-    # app.logger.debug("Looping through results: {}".format(", ".join([x.name for x in result[source_id]])))
-    # for top_node in result[source_id]:
-    #     node_sql = None
-    #     node_sql = top_node.whole_tree_inserts()
-    #     # app.logger.debug("node_sql: {}".format(node_sql))
-    #     sql_trees["meta"] += "\n".join(node_sql["meta"])
-    #     sql_trees["data"] += "\n".join(node_sql["data"])
-
-    # sql_tree0 = result["test"][0].whole_tree_inserts()
-    # app.logger.info("## ** ---------- ---------- ---------- ** ##")
-    # app.logger.info("All trees as objects:\n{}".format(result[source_id]))
-    # app.logger.info("Whole tree SQL inserts:\n{}".format(sql_trees))
-    # # app.logger.info("Whole meta SQL:\n{}".format("\n".join(sql_trees["meta"])))
-    # # app.logger.info("Whole data SQL:\n{}".format("\n".join(sql_trees["data"])))
-    # app.logger.info("Whole meta SQL:\n{}".format(sql_trees["meta"]))
-    # app.logger.info("Whole data SQL:\n{}".format(sql_trees["data"]))
-    # app.logger.info("## ** ---------- ---------- ---------- ** ##")
-    # response['content'] += "{}\n".format("SQL generated")
-
-    ## Write SQL to file
-    ## TODO
+    ## Prepare CSV files for inserting and execute against database
     db_conn = connection.get_database_connection(
         os.getenv("I2B2DBHOST"),
         os.getenv("I2B2DBNAME"),
         os.getenv("DB_ADMIN_USER"),
         os.getenv("DB_ADMIN_PASS")
     )
-    meta.csv_to_database(db_conn=db_conn, out_dir=app.config["csv_out_dir"])
+    if meta.csv_to_database(db_conn=db_conn, out_dir=app.config["csv_out_dir"], sources=[source_id]):
+        response['content'] += "{}\n".format("Database updated!")
+        response['status_code'] = 200
+    else:
+        response['content'] += "{}\n".format("Database update FAILED!")
+        response['status_code'] = 500
+        return response
 
-    ## Push sql to i2b2 database
-    # meta.sql_to_i2b2(sql_trees["meta"], sql_trees["data"])
-    ## TODO: More checks before writing response!
-    response['status_code'] = 200
-    # response['content'] += "{}\n".format("Database updated")
-    app.logger.info("Update complete!")
+    app.logger.info("Processing complete!")
     app.logger.info(response)
+    return response
+
+@app.route('/custom_query/')
+def custom_query(source_id:str = None):
+    """Use local files to update custom queries"""
+    if source_id is None:
+        source_id = request.args.get('source_id')
+    app.logger.info("Supplied vars...\nsource_id: {}".format(source_id))
+
+    response = {}
+    response['status_code'] = 500
+    response['content'] = ""
+    if source_id not in app.config["local_file_sources"].keys():
+        app.logger.error("source_id ({}) is not recognised, will not process any further!".format(source_id))
+        response['content'] += "{}\n".format("Must provide a valid source_id ({})!".format(source_id))
+        response['status_code'] = 500
+        return response
+
+    ## Update the CSV files with timestamps and source_id - then push to database
+    source_dir = app.config["local_file_sources"][source_id]
+    prepared_file_paths = meta.prepare_custom_queries(source_id, source_dir)
+    if prepared_file_paths and len(prepared_file_paths) > 0:
+        response['content'] += "{}\n".format("Files prepared for source_id: {}!".format(source_id))
+        db_conn = connection.get_database_connection(
+            os.getenv("I2B2DBHOST"),
+            os.getenv("I2B2DBNAME"),
+            os.getenv("DB_ADMIN_USER"),
+            os.getenv("DB_ADMIN_PASS")
+        )
+        if meta._push_prepared_csv_to_database(db_conn, prepared_file_paths):
+            db_conn.commit()
+            app.logger.info("Pushing data to database succeeded!")
+            response['content'] += "{}\n".format("Data pushed to database!")
+            response['status_code'] = 200
+        else:
+            app.logger.error("Pushing data to database failed!")
+            response['content'] += "{}\n".format("Pushing data to database failed!")
+            response['status_code'] = 500
+            return response
+    else:
+        app.logger.error("No prepared_file_paths ({}) available - cannot push to database".format(prepared_file_paths))
+        response['content'] += "{}\n".format("Processing did not produce any data for the database!".format(source_id))
+        response['status_code'] = 500
+        return response
     return response
 
 @app.route('/testtop/')
@@ -191,38 +255,6 @@ def testtop():
     # queries.ge metadata_trees[source_id].append(get_tree(sparql_wrapper, node_uri, node_type))
     connection["session"].close()
     return {"status": 200, "content": "Test complete - see logs\n{}".format(top_elements)}
-
-@app.route('/test2')
-def test2():
-    app.logger.info("Running test2 route...")
-    import meta
-    result = None
-    response = {}
-    app.logger.info("Running test functions...")
-    response['status_code'] = 200
-    response['content'] = ""
-    result = meta.get_element()
-    response['content'] += "{}\n".format(result)
-    ## Dummy "scripts" to return simple string
-    # import time
-    # time.sleep(5)
-    # scripts = "Working..."
-    app.logger.info("Test complete!")
-    app.logger.info(response)
-    return response
-
-@app.route('/test3/', defaults={'a1' : 'd1', 'a2' : 'd2', 'a3' : 'd3'})
-def test3(a1,a2,a3):
-    app.logger.info("Running test3 route...")
-    app.logger.debug("plain 'locals': {}".format(locals()))
-    app.logger.debug("'locals.__dir__': {}".format(locals().__dir__()))
-    # app.logger.debug("'locals.__dict__': {}".format(locals().__dict__))
-    app.logger.debug("'locals.items()': {}".format(locals().items()))
-    for param, val in locals().items():
-        app.logger.debug("Param '{}': {}".format(param, val))
-    app.logger.debug("'a1': {}".format(a1))
-    app.logger.debug("'args a1': {}".format(request.args.get('a1')))
-    return {"status": 200, "content": "Test complete - see logs"}
 
 @app.route('/testtree')
 def testtree():
@@ -250,49 +282,6 @@ def testtree():
     # import time
     # time.sleep(5)
     # scripts = "Working..."
-    app.logger.info("Test complete!")
-    app.logger.info(response)
-    return response
-
-@app.route('/testfull')
-def testfull():
-    app.logger.info("Running testfull route...")
-    import meta
-    result = None
-    response = {}
-    app.logger.info("Running functions...")
-    response['status_code'] = 200
-    response['content'] = ""
-    result = meta.pull_fuseki_datatree()
-    response['content'] += "{}\n".format(result)
-
-    ## TODO: Configure source system - not use hardcoded "test"
-    sql_trees = {"meta": "", "data": ""}
-    app.logger.debug("Looping through results: {}".format(", ".join([x.name for x in result["test"]])))
-    for top_node in result["test"]:
-        node_sql = None
-        node_sql = top_node.whole_tree_inserts()
-        app.logger.debug("node_sql: {}".format(node_sql))
-        sql_trees["meta"] += "\n".join(node_sql["meta"])
-        sql_trees["data"] += "\n".join(node_sql["data"])
-
-    # sql_tree0 = result["test"][0].whole_tree_inserts()
-    app.logger.info("## ** ---------- ---------- ---------- ** ##")
-    app.logger.info("All trees as objects:\n{}".format(result["test"]))
-    app.logger.info("Whole tree SQL inserts:\n{}".format(sql_trees))
-    # app.logger.info("Whole meta SQL:\n{}".format("\n".join(sql_trees["meta"])))
-    # app.logger.info("Whole data SQL:\n{}".format("\n".join(sql_trees["data"])))
-    app.logger.info("Whole meta SQL:\n{}".format(sql_trees["meta"]))
-    app.logger.info("Whole data SQL:\n{}".format(sql_trees["data"]))
-    app.logger.info("## ** ---------- ---------- ---------- ** ##")
-    response['content'] += "{}\n".format("SQL generated")
-
-    ## Write SQL to file
-    ## TODO
-
-    ## Push sql to i2b2 database
-    meta.sql_to_i2b2(sql_trees["meta"], sql_trees["data"])
-    response['content'] += "{}\n".format("Database updated")
     app.logger.info("Test complete!")
     app.logger.info(response)
     return response

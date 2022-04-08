@@ -1,6 +1,7 @@
 """ meta_node.py
 Object model for a metadata node
 """
+from cmath import log
 from flask import current_app as app
 
 import logging
@@ -8,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 import datetime
 from enum import Enum
+import operator
 
 class NodeType(Enum):
     """Possible types of node"""
@@ -21,6 +23,8 @@ class NodeDatatype(Enum):
     INTEGER = 2
     LARGESTRING = 3
     STRING = 4
+    PARTIAL_DATE = 5
+    DATE = 6
 
 class NodeStatus(Enum):
     """Possible status of node"""
@@ -52,7 +56,7 @@ class MetaNode(object):
     alt_labels:dict[str:str] = None
 
     ## i2b2hidden
-    dwh_display:str = None
+    dwh_display_status:str = None
     ## Where a modifier is applicable
     _applied_path:str = None
     ## When the object is created
@@ -86,7 +90,9 @@ class MetaNode(object):
     def c_table_cd(self) -> str:
         """Build the unique identifier for the tree of a top level node"""
         if self.top_level_node:
-            unique_code = "i2b2_{}_{}".format(self.sourcesystem_cd, self.concept_long_hash8)
+            ## Don't put the sourcesystem_cd in at this point, only when manipulating the CSV data
+            # unique_code = "i2b2_{}_{}".format(self.sourcesystem_cd, self.concept_long_hash8)
+            unique_code = "i2b2_{}".format(self.concept_long_hash8)
         else:
             unique_code = None
         logger.debug("Returning c_table_cd for '{}': {}".format(self.name, unique_code))
@@ -110,7 +116,7 @@ class MetaNode(object):
         else:
             va_part1 = "M"
 
-        if self.dwh_display == "i2b2hidden":
+        if self.dwh_display_status.lower() == "i2b2hidden":
             va_part2 = "H"
         else:
             va_part2 = "A"
@@ -141,16 +147,35 @@ class MetaNode(object):
         else:
             return self.ancestor_count + 2
     @property
+    def pref_labels(self) -> dict:
+        """Dict or None"""
+        if self._pref_labels and len(self._pref_labels) > 0:
+            return self._pref_labels
+        else:
+            return None
+    @property
     def pref_label(self) -> str:
         """ Get English pref_label (or German if no English) """
+        # logger.debug("Searching for the right display label from dict: {}".format(self.pref_labels))
         if not self.pref_labels or len(self.pref_labels) == 0:
             single_label = ""
         elif "en" in self.pref_labels.values():
-            single_label = list(self.pref_labels.keys())[list(self.pref_labels.values()).index("en")]
+            keys_with_en = [k for k, v in self.pref_labels.items() if v == "en"]
+            if len(keys_with_en) == 1:
+                single_label = keys_with_en[0]
+            else:
+                logger.warn("More than 1 @en pref labels! '{}'".format(self.pref_labels))
+                single_label = keys_with_en[0]
         else:
-            logger.debug("All keys for '{}': {}".format(self.node_uri, self.pref_labels.keys()))
             single_label = self.pref_labels.keys()[0]
+        # logger.debug("Decided on pref_label: {}".format(single_label))
         return single_label
+    @pref_labels.setter
+    def pref_labels(self, pref_labels):
+        """Ensure no "None" key in dict"""
+        self._pref_labels = pref_labels
+        self._pref_labels.pop(None, None)
+
     @property
     def datatype(self) -> NodeDatatype:
         """The raw Enum representation of the datatype"""
@@ -158,19 +183,28 @@ class MetaNode(object):
     @datatype.setter
     def datatype(self, dtype:str):
         """Convert incoming string based indication to enum"""
-        types = {NodeDatatype.INTEGER: ["int", "integer"], NodeDatatype.FLOAT: ["float", "dec", "decimal"], NodeDatatype.STRING: ["string", "str"], NodeDatatype.LARGESTRING: ["largestring"]}
-        incoming_types = {v:k for k, l in types.items() for v in l}
-        if dtype in incoming_types.keys():
-            self._datatype = incoming_types.get(dtype.lower(), None)
+        types = {NodeDatatype.INTEGER: ["int", "integer"], NodeDatatype.FLOAT: ["float", "dec", "decimal"], NodeDatatype.STRING: ["string", "str"], NodeDatatype.LARGESTRING: ["largestring"], NodeDatatype.PARTIAL_DATE: ["partial date", "partialDate", "partialDateRestriction"], NodeDatatype.DATE: ["dateRestriction", "date"]}
+        ## Reverse the "types" dict so we can easily lookup the notations we expect to receive
+        incoming_type_representations = {v.lower():k for k, l in types.items() for v in l}
+        # logger.debug("Reversed types dict: {}\n \
+        #     Type for node '{}': {}\
+        # ".format(
+        #     incoming_type_representations,
+        #     self.name,
+        #     dtype
+        #     ))
+        if dtype and dtype.lower() in incoming_type_representations.keys():
+            self._datatype = incoming_type_representations.get(dtype.lower(), None)
         else:
             logger.warn("Trying to set node '{}' with an invalid datatype: {}".format(self.name, dtype))
             self._datatype = None
+        # logger.debug("datetype for node '{}' set to: {}".format(self.name, self._datatype))
     @property
     def datatype_pretty(self) -> str:
         """ String version of datatype. With correct case for i2b2 """
         pretty_dt = ""
         if self.datatype is not None:
-            dt_prettify = {NodeDatatype.INTEGER: "Integer", NodeDatatype.FLOAT: "Float",NodeDatatype.STRING: "String", NodeDatatype.LARGESTRING: "largeString"}
+            dt_prettify = {NodeDatatype.INTEGER: "Integer", NodeDatatype.FLOAT: "Float",NodeDatatype.STRING: "String", NodeDatatype.LARGESTRING: "largeString", NodeDatatype.PARTIAL_DATE: "String", NodeDatatype.DATE: "String"}
             pretty_dt = dt_prettify[self.datatype]
         return pretty_dt
     @property
@@ -231,39 +265,59 @@ class MetaNode(object):
         elif self.parent_node.node_type == NodeType.MODIFIER:
             return self.parent_node.applied_path
         else:
-            ## Must be the parent modifier of a tree (or a standalone modifier)
-            return "{parent_path}{sep}%".format(
+            ## No need to include the multi-notation container as that would make the modifier also hidden
+            new_path = "{parent_path}{sep}%".format(
                 parent_path = self.parent_node.element_path,
                 sep = app.config["i2b2_path_separator"]
                 ).replace("\\\\", "\\").replace("//", "/")
+            ## TODO: For consistency with existing system - REMOVE START
+            if self.parent_node.notations and len(self.parent_node.notations) > 1:
+                new_path.replace("\\%", "\\MULTI\\%")
+            ## TODO: For consistency with existing system - REMOVE END
+            return new_path
 
     @property
     def display_labels(self) -> dict:
-        """Default to pref_labels"""
+        """Dict or None"""
         if self._display_labels and len(self._display_labels) > 0:
             return self._display_labels
         else:
-            return self.pref_labels
+            # return self.pref_labels
+            return None
     @property
     def display_label(self) -> str:
         """ Get English display_label (or German if no English) """
+        # logger.debug("Searching for the right display label from dict: {}".format(self.display_labels))
         if not self.display_labels or len(self.display_labels) == 0:
+            # logger.debug("Empty display label")
             single_label = ""
         elif "en" in self.display_labels.values():
-            single_label = self.display_labels.keys()[self.display_labels.values().index("en")]
+            keys_with_en = [k for k, v in self.display_labels.items() if v == "en"]
+            # if operator.countOf(self.display_labels.values(), "en") == 1:
+            # logger.debug("en keys: {}".format(keys_with_en))
+            if len(keys_with_en) == 1:
+                # logger.debug("en display label at index 0 (only 1 available!): {}".format(keys_with_en[0]))
+                single_label = keys_with_en[0]
+            else:
+                logger.warn("More than 1 @en display labels! '{}'".format(self.display_labels))
+                single_label = keys_with_en[0]
         else:
+            # logger.debug("First display label  in dict")
             single_label = self.display_labels.keys()[0]
+        # logger.debug("Decided on display_label: {}".format(single_label))
         return single_label
     @display_labels.setter
     def display_labels(self, display_labels):
         """Simple"""
         self._display_labels = display_labels
+        ## Ensure there is not a "None" key
+        self._display_labels.pop(None, None)
 
     @property
     def description(self) -> str:
         """Return the first description as a string"""
         if self.descriptions is None or len(self.descriptions) == 0:
-            return ""
+            return self.pref_label
         else:
             return next(iter(self.descriptions))
 
@@ -448,7 +502,7 @@ class MetaNode(object):
                     lines[concept_type_table].append(MetaNode._data_to_csv(ordered_cols = cols, d = notation_obj.__dict__()))
         return lines
 
-    def __init__(self, node_uri, name, node_type, pref_labels, display_labels, notations, descriptions, alt_labels = None, datatype = None, display_status = None, parent_node = None, units = None, sourcesystem_cd = "UNKNOWN") -> None:
+    def __init__(self, node_uri, name, node_type, pref_labels, display_labels, notations, descriptions, alt_labels = None, datatype = None, dwh_display_status = None, parent_node = None, units = None, sourcesystem_cd = "UNKNOWN") -> None:
         """Initialise an instance with data"""
         if parent_node is not None:
             self.parent_node = parent_node
@@ -465,7 +519,7 @@ class MetaNode(object):
         self.alt_labels = alt_labels
         self.datatype = datatype
         self.units = units
-        self.display_status = display_status
+        self.dwh_display_status = dwh_display_status
         self.sourcesystem_cd = sourcesystem_cd
         ## TODO: take time format from config
         self.fetch_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.0")
@@ -630,7 +684,21 @@ class MetaNode(object):
                 new_value = str(app.config["fixed_value_cols"].get(col_name, ""))
             elif col_name in app.config["sql_col_object_property_map"]:
                 ## Lookup name map as sql cols differ from attribute/property names here
-                real_property = str(app.config["sql_col_object_property_map"].get(col_name, ""))
+                # real_property = str(app.config["sql_col_object_property_map"].get(col_name, ""))
+                real_property_options = app.config["sql_col_object_property_map"].get(col_name, "")
+                logger.debug("Mapping SQL col '{}' from fuseki properties in map '{}' (Type: {})".format(col_name, real_property_options, type(real_property_options)))
+                if type(real_property_options) is str:
+                    real_property = real_property_options
+                else:
+                    ## Must be a list of options - we should check and or try/except
+                    for attempt_property in real_property_options:
+                        if d.get(attempt_property, None) is not None and str(d.get(attempt_property, "")) != "":
+                            logger.debug("Found non-empty useful value with prop '{}': '{}'".format(attempt_property, str(d.get(attempt_property, ""))))
+                            real_property = attempt_property
+                            break
+                        else:
+                            logger.debug("Found empty/useless value with prop '{}': {}".format(attempt_property, str(d.get(attempt_property, ""))))
+                            pass
                 new_value = str(d.get(real_property, ""))
                 logger.debug("mismatched sql({})/object({}) name for '{}', value: {}".format(col_name, real_property, d["pref_label"], new_value))
             else:
@@ -672,7 +740,7 @@ class MetaNode(object):
         """Return all properties which are useful as well as any regular attributes"""
         all_attributes = [
             "c_table_cd", "c_hlevel", "concept_long", "concept_long_hash8", "pref_label", "visual_attribute", "datatype_xml", "c_facttablecolumn", "c_tablename", "c_columnname",
-            "description", "descriptions", "applied_path", "fetch_timestamp", "notation", "notations", "sourcesystem_cd"
+            "description", "descriptions", "applied_path", "fetch_timestamp", "notation", "notations", "sourcesystem_cd", "display_label"
         ]
         d = {k: getattr(self, k, None) for k in all_attributes}
         return d
@@ -703,14 +771,14 @@ class NotationNode(object):
             notation_path = r"{pnp}{ni}{sep}".format(
                 pnp = pnp,
                 sep = sep,
-                ni = list(self.containing_node.notations.values()).index(self)
+                ni = list(self.containing_node.notations.values()).index(self) - 1
                 )
         else:
             notation_path = r"{pnp}{impc}{sep}{ni}{sep}".format(
                 pnp = pnp,
                 sep = sep,
                 impc = impc,
-                ni = list(self.containing_node.notations.values()).index(self)
+                ni = list(self.containing_node.notations.values()).index(self) - 1
                 )
         # logger.debug("Calculated notation path for '{}': {}".format(self.notation, notation_path))
         return notation_path.replace("\\\\", "\\").replace("//", "/")
@@ -731,6 +799,13 @@ class NotationNode(object):
         else:
             return self._notation
 
+    @property
+    def display_label(self) -> str:
+        """Let display_label be "MULTI" when this is the container node"""
+        if self.visual_attribute == "MH":
+            return "MULTI"
+        else:
+            return self.containing_node.display_label
     @property
     def concept_long(self) -> str:
         """Concept path"""
@@ -757,7 +832,9 @@ class NotationNode(object):
         # parent_attributes = ["pref_label", "datatype_xml", "c_facttablecolumn", "c_tablename", "c_columnname", "description", "applied_path", "fetch_timestamp"]
         # notation_attributes = ["c_hlevel", "visual_attribute", "concept_long", "concept_long_hash8", "notation"]
         # all_attributes = [*parent_attributes, *notation_attributes]
-        all_attributes = ["c_hlevel", "concept_long", "pref_label", "visual_attribute", "datatype_xml", "c_facttablecolumn", "c_tablename", "c_columnname", "description", "descriptions", "applied_path", "fetch_timestamp", "concept_long_hash8", "notation", "notations"]
+        all_attributes = [
+            "c_hlevel", "concept_long", "pref_label", "visual_attribute", "datatype_xml", "c_facttablecolumn", "c_tablename", "c_columnname", "description", "descriptions",
+            "applied_path", "fetch_timestamp", "concept_long_hash8", "notation", "notations", "display_label"]
         d1 = {k: getattr(self.containing_node, k, None) for k in all_attributes if not hasattr(self, k)}
         d2 = {k: getattr(self, k, None) for k in all_attributes if hasattr(self, k)}
         return {**d1, **d2}

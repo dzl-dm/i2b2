@@ -6,26 +6,42 @@
 SQLALCHEMY_TRACK_MODIFICATIONS : False
 
 ## These lower_case variables are ignored by flask's app.config context
-data_file: "/var/i2b2-meta/export.ttl"
-## TODO: Use the .env "generator_sparql_endpoint"
-# fuseki_url: "https://data.dzl.de/fuseki/cometar_test/data?default"
-# fuseki_url: "https://data.dzl.de/fuseki/cometar_live/query"
-# fuseki_url: "http://dwh.proxy/fuseki/cometar_live/query"
-# fuseki_url: "http://172.17.0.1:81/fuseki/cometar_live/query"
+## Dict of acceptable fuseki sources
+fuseki_sources:
+  "local": "http://dwh.proxy/fuseki/cometar_live/query"
+  "DZL": "https://data.dzl.de/fuseki/cometar_live/query"
+
+## NOTE: File naming convention must be followed:
+## <source_id/queryname(as below)>.<database_schema>.<database_table>.*
+# local_file_sources:
+#   "custom_metadata": "/var/translator-custom-metadata"
+
+# /var/translator-custom-metadata
+#   ./demographics
+#     ./i2b2metadata.table_acces.csv
+#     ./i2b2metadata.i2b2.csv
+#   ./icd10
+
+#   ./DZL
+#     ./i2b2metadata.table_acces.csv
+#     ./i2b2metadata.i2b2.csv
+#     ./i2b2demodata.concept_dimension.csv
+#     ./i2b2demodata.modifier_dimension.csv
+#   ./local
 
 max_processing_duration: 600 ## seconds
 generator_mappings:
-  "http://data.custom.de/ont/dwh#": ":"
-  "http://data.dzl.de/ont/dwh#": "DZL:"
+  "http://data.custom.de/ont/dwh#": "default:"
+  "http://data.dzl.de/ont/dwh#": "dzl:"
   "http://purl.bioontology.org/ontology/SNOMEDCT/": "S:"
   "http://loinc.org/owl#": "L:"
   "http://sekmi.de/histream/dwh#snomed": "S:"
   "http://sekmi.de/histream/dwh#loinc": "L:"
 
+
 i2b2_path_prefix: "i2b2"
 i2b2_path_separator: '\'
 i2b2_multipath_container: "MULTI"
-sourcesystem: "test"
 meta_schema: "i2b2metadata"
 ontology_tablename: "i2b2"
 data_schema: "i2b2demodata"
@@ -34,12 +50,12 @@ csv_out_dir: "/var/metadata-translation/"
 
 sql_col_object_property_map:
   "c_fullname": "concept_long"
-  "c_name": "pref_label"
+  "c_name": ["display_label", "pref_label"]
   "c_visualattributes": "visual_attribute"
   "c_basecode": "notation"
   "c_metadataxml": "datatype_xml"
   "c_dimcode": "concept_long"
-  "c_tooltip": "description"
+  "c_tooltip": ["description", "pref_label", "display_label"]
   "m_applied_path": "applied_path"
   "download_date": "fetch_timestamp"
   "sourcesystem_cd": "sourcesystem"
@@ -68,3 +84,10 @@ fixed_value_cols:
   "c_dimtablename": "concept_dimension"
   "c_protected_access": "N"
   "c_ontology_protection": ""
+
+i2b2db_col_limits:
+  i2b2metadata: ## Schema name
+    i2b2: ## Table name
+      c_tooltip: "varchar(2000)"
+      c_fullname: "varchar(5000)"
+  i2b2demodata:
