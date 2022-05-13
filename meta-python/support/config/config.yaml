@@ -49,6 +49,7 @@ data_schema: "i2b2demodata"
 csv_out_dir: "/var/metadata-translation/"
 
 sql_col_object_property_map:
+  ## This map can use descending precedence lists to pick a variable which isn't null/empty
   "c_fullname": "concept_long"
   "c_name": ["display_label", "pref_label"]
   "c_visualattributes": "visual_attribute"
@@ -56,6 +57,7 @@ sql_col_object_property_map:
   "c_metadataxml": "datatype_xml"
   "c_dimcode": "concept_long"
   "c_tooltip": ["description", "pref_label", "display_label"]
+  "i2b2metadata-table_access-c_tooltip": ["display_label", "pref_label"]
   "m_applied_path": "applied_path"
   "download_date": "fetch_timestamp"
   "sourcesystem_cd": "sourcesystem"
@@ -84,10 +86,15 @@ fixed_value_cols:
   "c_dimtablename": "concept_dimension"
   "c_protected_access": "N"
   "c_ontology_protection": ""
+  "i2b2metadata-table_access-c_basecode": ""
+
 
 i2b2db_col_limits:
   i2b2metadata: ## Schema name
     i2b2: ## Table name
       c_tooltip: "varchar(2000)"
       c_fullname: "varchar(5000)"
+      c_visualattributes: "varchar(10)"
+    table_access: ## Table name
+      c_visualattributes: "varchar(10)"
   i2b2demodata:

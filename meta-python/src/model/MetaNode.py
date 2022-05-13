@@ -116,10 +116,12 @@ class MetaNode(object):
         else:
             va_part1 = "M"
 
-        if self.dwh_display_status.lower() == "i2b2hidden":
+        if self.dwh_display_status and self.dwh_display_status.lower() == "i2b2hidden":
             va_part2 = "H"
         else:
             va_part2 = "A"
+        if self.top_level_node:
+            return "FA"
         return va_part1 + va_part2
     @property
     def element_path(self) -> str:
@@ -265,15 +267,38 @@ class MetaNode(object):
         elif self.parent_node.node_type == NodeType.MODIFIER:
             return self.parent_node.applied_path
         else:
+            ## NEW - START
             ## No need to include the multi-notation container as that would make the modifier also hidden
             new_path = "{parent_path}{sep}%".format(
                 parent_path = self.parent_node.element_path,
                 sep = app.config["i2b2_path_separator"]
                 ).replace("\\\\", "\\").replace("//", "/")
-            ## TODO: For consistency with existing system - REMOVE START
-            if self.parent_node.notations and len(self.parent_node.notations) > 1:
-                new_path.replace("\\%", "\\MULTI\\%")
-            ## TODO: For consistency with existing system - REMOVE END
+            ## NEW - END
+            ## OLD - START
+            if self.parent_node.notations and type(self.parent_node.notations) is dict and len(self.parent_node.notations) > 1:
+            # if self.parent_node.child_nodes and len(self.parent_node.child_nodes) > 1:
+                new_path = "{parent_path}{sep}{impc}{sep}%".format(
+                    parent_path = self.parent_node.element_path,
+                    impc = app.config["i2b2_multipath_container"],
+                    sep = app.config["i2b2_path_separator"]
+                    ).replace("\\\\", "\\").replace("//", "/")
+                logger.debug("Adding MULTI to applied_path for {}: {}".format(self.name, new_path))
+            else:
+                new_path = "{parent_path}{sep}%".format(
+                    parent_path = self.parent_node.element_path,
+                    sep = app.config["i2b2_path_separator"]
+                    ).replace("\\\\", "\\").replace("//", "/")
+            ## OLD - END
+
+            ## TODO: For consistency with existing system - START REMOVE
+            if "12645001" in self.concept_long:
+                logger.debug("Parent notations for amplification modifier (12645001): {}".format(self.parent_node.notations))
+            # if (self.parent_node.notations and type(self.parent_node.notations) is dict and len(self.parent_node.notations) > 1) \
+            #     or (self.parent_node.child_nodes and len(self.parent_node.child_nodes) > 1):
+            # if self.parent_node.child_nodes and len(self.parent_node.child_nodes) > 1:
+            #     logger.debug("Adding MULTI to applied_path for {}".format(self.name))
+            #     new_path.replace("\\%", "\\MULTI\\%")
+            ## TODO: For consistency with existing system - END REMOVE
             return new_path
 
     @property
@@ -458,19 +483,19 @@ class MetaNode(object):
         lines = {"i2b2": [], "table_access": []}
         ## ontology can have multiple entries when there are multiple notations
         ## Always insert the base node
-        lines["i2b2"].append(MetaNode._data_to_csv(ordered_cols = i2b2_cols, d = d))
+        lines["i2b2"].append(MetaNode._data_to_csv(ordered_cols = i2b2_cols, d = d, table_name = "i2b2", schema_name = "i2b2metadata"))
         logger.debug("self.notations for '{}': {}".format(self.name, self.notations))
         if self.notations and len(self.notations) >= 2:
             ## If multiple notations, use NotationNode objects to populate the additional csv lines
             for notation_obj in self.notations.values():
-                lines["i2b2"].append(MetaNode._data_to_csv(ordered_cols = i2b2_cols, d = notation_obj.__dict__()))
+                lines["i2b2"].append(MetaNode._data_to_csv(ordered_cols = i2b2_cols, d = notation_obj.__dict__(), table_name = "i2b2", schema_name = "i2b2metadata"))
             logger.debug("Multiple notations for '{}'...\n{}".format(self.name, lines))
 
         ta_cols = ["c_table_cd", "c_table_name", "c_protected_access", "c_ontology_protection", "c_hlevel", "c_fullname", "c_name", "c_synonym_cd", "c_visualattributes", "c_totalnum", "c_basecode", "c_metadataxml", "c_facttablecolumn", "c_dimtablename", "c_columnname", "c_columndatatype", "c_operator", "c_dimcode", "c_comment", "c_tooltip", "c_entry_date", "c_change_date", "c_status_cd", "valuetype_cd"]
         if self.top_level_node:
             d["c_hlevel"] = 1
             logger.debug("Using self dict: {}".format(d))
-            lines["table_access"] = [MetaNode._data_to_csv(ordered_cols = ta_cols, d = d)]
+            lines["table_access"] = [MetaNode._data_to_csv(ordered_cols = ta_cols, d = d, table_name = "table_access", schema_name = "i2b2metadata")]
         # else:
         #     lines["table_access"] = None
         return lines
@@ -495,11 +520,11 @@ class MetaNode(object):
         ## data inserts occur once for each notation, but not for the containing concept (unless its a single notation)
         lines = {"concept_dimension": [], "modifier_dimension": []}
         if len(self.notations) == 1:
-            lines[concept_type_table].append(MetaNode._data_to_csv(ordered_cols = cols, d = d))
+            lines[concept_type_table].append(MetaNode._data_to_csv(ordered_cols = cols, d = d, table_name = concept_type_table, schema_name = "i2b2demodata"))
         else:
             for notation_obj in self.notations.values():
                 if notation_obj.notation is not None and notation_obj.notation != "":
-                    lines[concept_type_table].append(MetaNode._data_to_csv(ordered_cols = cols, d = notation_obj.__dict__()))
+                    lines[concept_type_table].append(MetaNode._data_to_csv(ordered_cols = cols, d = notation_obj.__dict__(), table_name = concept_type_table, schema_name = "i2b2demodata"))
         return lines
 
     def __init__(self, node_uri, name, node_type, pref_labels, display_labels, notations, descriptions, alt_labels = None, datatype = None, dwh_display_status = None, parent_node = None, units = None, sourcesystem_cd = "UNKNOWN") -> None:
@@ -672,7 +697,7 @@ class MetaNode(object):
         return concept_sql
 
     @classmethod
-    def _data_to_csv(cls, ordered_cols:list, d:dict, delim:str = ";") -> list:
+    def _data_to_csv(cls, ordered_cols:list, d:dict, delim:str = ";", table_name:str = None, schema_name:str = None) -> list:
         """Generate a csv line given the columns and data provided"""
         first = True
         line = []
@@ -681,18 +706,31 @@ class MetaNode(object):
             new_value = ""
             if col_name in app.config["fixed_value_cols"]:
                 ## Inject fixed values for some columns (see sql inserts)
-                new_value = str(app.config["fixed_value_cols"].get(col_name, ""))
+                if schema_name and table_name and "{sn}{sep}{tn}{sep}{cn}".format(sep="-", sn=schema_name, tn=table_name, cn=col_name) in app.config["fixed_value_cols"]:
+                    new_value = str(app.config["fixed_value_cols"].get("{sn}{sep}{tn}{sep}{cn}".format(sep="-", sn=schema_name, tn=table_name, cn=col_name), ""))
+                elif table_name and "{tn}{sep}{cn}".format(sep="-", tn=table_name, cn=col_name) in app.config["fixed_value_cols"]:
+                    new_value = str(app.config["fixed_value_cols"].get("{tn}{sep}{cn}".format(sep="-", tn=table_name, cn=col_name), ""))
+                else:
+                    new_value = str(app.config["fixed_value_cols"].get(col_name, ""))
             elif col_name in app.config["sql_col_object_property_map"]:
-                ## Lookup name map as sql cols differ from attribute/property names here
+                ## Lookup name map as sql cols can differ from attribute/property names in code. Also can implement preference list to avoid empty values
                 # real_property = str(app.config["sql_col_object_property_map"].get(col_name, ""))
-                real_property_options = app.config["sql_col_object_property_map"].get(col_name, "")
+                logger.info("Mapping SQL column '{}' to object attribute '{}'".format(col_name, [y for x,y in app.config["sql_col_object_property_map"].items() if col_name in x]))
+                if schema_name and table_name and "{sn}{sep}{tn}{sep}{cn}".format(sep="-", sn=schema_name, tn=table_name, cn=col_name) in app.config["sql_col_object_property_map"]:
+                    real_property_options = app.config["sql_col_object_property_map"].get("{sn}{sep}{tn}{sep}{cn}".format(sep="-", sn=schema_name, tn=table_name, cn=col_name), "")
+                elif table_name and "{tn}{sep}{cn}".format(sep="-", tn=table_name, cn=col_name) in app.config["sql_col_object_property_map"]:
+                    real_property_options = app.config["sql_col_object_property_map"].get("{tn}{sep}{cn}".format(sep="-", tn=table_name, cn=col_name), "")
+                else:
+                    real_property_options = app.config["sql_col_object_property_map"].get(col_name, "")
                 logger.debug("Mapping SQL col '{}' from fuseki properties in map '{}' (Type: {})".format(col_name, real_property_options, type(real_property_options)))
                 if type(real_property_options) is str:
                     real_property = real_property_options
                 else:
-                    ## Must be a list of options - we should check and or try/except
+                    ## Must be a list of options - TODO: we should check and/or try/except
+                    real_property = ""
                     for attempt_property in real_property_options:
                         if d.get(attempt_property, None) is not None and str(d.get(attempt_property, "")) != "":
+                        # if attempt_property in d and str(d.get(attempt_property, "")) != "":
                             logger.debug("Found non-empty useful value with prop '{}': '{}'".format(attempt_property, str(d.get(attempt_property, ""))))
                             real_property = attempt_property
                             break
@@ -711,7 +749,7 @@ class MetaNode(object):
                 line.append(new_value)
         return line
     @classmethod
-    def _data_to_csv_str(cls, ordered_cols:list, d:dict, delim:str = ";") -> str:
+    def _data_to_csv_OLD(cls, ordered_cols:list, d:dict, delim:str = ";") -> str:
         """Generate a csv line given the columns and data provided"""
         first = True
         line = ""
@@ -758,7 +796,10 @@ class NotationNode(object):
             return "LH"
     @property
     def element_path(self) -> str:
-        """Dynamically calculated - multi container only used if node has children"""
+        """Dynamically calculated
+            - multi container only used if node has children
+            - index only used if node has multiple notations
+        """
         # logger.debug("Checking parent node '{}' for element path stem: {}".format(self.containing_node, self.containing_node.element_path))
         sep = app.config["i2b2_path_separator"]
         impc = app.config["i2b2_multipath_container"]
@@ -768,10 +809,10 @@ class NotationNode(object):
             notation_path = r"{pnp}{impc}{sep}".format(pnp = pnp, impc = impc, sep = sep)
         elif self.containing_node.child_nodes is None or len(self.containing_node.child_nodes) == 0:
             ## No multi-path hidden container when there are no child nodes
-            notation_path = r"{pnp}{ni}{sep}".format(
+            notation_path = r"{pnp}{sep}{ni}{sep}".format(
                 pnp = pnp,
                 sep = sep,
-                ni = list(self.containing_node.notations.values()).index(self) - 1
+                ni = list(self.containing_node.notations.values()).index(self)
                 )
         else:
             notation_path = r"{pnp}{impc}{sep}{ni}{sep}".format(
@@ -780,16 +821,22 @@ class NotationNode(object):
                 impc = impc,
                 ni = list(self.containing_node.notations.values()).index(self) - 1
                 )
+        ## All of these objects are where there are multiple notations, so expect the empty container, all should have an index (included above)
+        # if self.containing_node.notations and len(self.containing_node.notations) > 1:
+        #     notation_path += r"{ni}{sep}".format(sep = sep, ni = list(self.containing_node.notations.values()).index(self))
         # logger.debug("Calculated notation path for '{}': {}".format(self.notation, notation_path))
+        ## Remove duplicate slashes - if they they were at start and end of concatenated strings, then they will be doubled (back-slashes will be escaped too)
         return notation_path.replace("\\\\", "\\").replace("//", "/")
     @property
     def c_hlevel(self) -> int:
         """Dynamically calculated. \MULTI\ is +1, actual notations are +2"""
+        ## TODO: or when containing_node notations length is 1?
         if self.notation == "" or self.containing_node.child_nodes is None or len(self.containing_node.child_nodes) == 0:
             ## Hidden container \MULTI\
             ## Or when no children
             return self.containing_node.c_hlevel + 1
         else:
+            ## Should be when multi and index exist together - 
             return self.containing_node.c_hlevel + 2
     @property
     def notation(self) -> str:
