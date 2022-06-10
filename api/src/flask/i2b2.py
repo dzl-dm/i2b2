@@ -43,9 +43,10 @@ def stats():
     result = stats.get_stats()
     return "<html><body><p>Exitcode: "+str(result[1])+"</p><p>Message Log:<br/>"+result[0].replace("\n","<br/>")+"</p></body></html>"
 
-@app.route('/updatemeta/<src_id>')
-def updatemeta(src_id:str = None):
-    """Make a basic http request to the meta container which will then handle the translation of incoming meta-data to i2b2"""
+@app.route('/updatemeta/<source_id>')
+@app.route('/updatemeta')
+def updatemeta(source_id:str = None):
+    """Make a simple http request to the meta container which will then handle the translation of incoming meta-data to i2b2"""
     if source_id is None:
         source_id = request.args.get('source_id')
     logger.info("Updating i2b2 metadata from source: '{}'...".format(source_id))
@@ -61,37 +62,83 @@ def updatemeta(src_id:str = None):
     ## Winner above
     logger.debug("OR maybe request from: {}".format(request.environ['REMOTE_ADDR']))
 
-    # meta_update_endpoint = "http://{meta_server}:5000/single?source_id={src_id}".format(
+    # meta_update_endpoint = "http://{meta_server}:5000/single?source_id={source_id}".format(
     #     meta_server = os.getenv("META_SERVER"),
-    #     src_id = os.getenv("generator_sparql_endpoint")
+    #     source_id = os.getenv("generator_sparql_endpoint")
     #     )
     # logger.debug("Forwarding request to responsible container: {}".format(meta_update_endpoint))
     # meta_response = requests.get(meta_update_endpoint)
-    meta_fetch = "http://{meta_server}:5000/fetch-and-generate-intermediate-csv?source_id={src_id}".format(
+    meta_fetch = "http://{meta_server}:5000/fetch-and-generate-csv?source_id={source_id}".format(
         meta_server = os.getenv("META_SERVER"),
-        src_id = os.getenv("generator_sparql_endpoint")
+        source_id = source_id
         )
-    meta_load = "http://{meta_server}:5000/load-intermediate-csv-to-postgres?source_id={src_id}".format(
+    meta_flush = "http://{meta_server}:5000/flush?source_id={source_id}".format(
         meta_server = os.getenv("META_SERVER"),
-        src_id = os.getenv("generator_sparql_endpoint")
+        source_id = source_id
+        )
+    meta_load = "http://{meta_server}:5000/load-csv-to-postgres?source_id={source_id}".format(
+        meta_server = os.getenv("META_SERVER"),
+        source_id = source_id
         )
     meta_count_patients = "http://{meta_server}:5000/update-patient-counts".format(
-        meta_server = os.getenv("META_SERVER"),
-        src_id = os.getenv("generator_sparql_endpoint")
+        meta_server = os.getenv("META_SERVER")
         )
-    meta_response = requests.get(meta_update_endpoint)
 
+    result = [False, "No results"]
+    meta_response = requests.get(meta_fetch)
+    ## For subsequent "result"s, do not override "False" if the latest response is true. Append text instead of overwrite 
     result = [meta_response.ok, meta_response.text]
+    if meta_response:
+        meta_response = requests.get(meta_flush)
+        result = [not result[0] or meta_response.ok, result[1] + meta_response.text]
+        meta_response = requests.get(meta_load)
+        result = [not result[0] or meta_response.ok, result[1] + meta_response.text]
+    meta_response = requests.get(meta_count_patients)
+    result = [not result[0] or meta_response.ok, result[1] + meta_response.text]
+
+    # result = [meta_response.ok, meta_response.text]
     logger.debug("Updade of meta data complete: {}".format(result))
-    return "<html><body><p>Success: "+str(result[0])+"</p><p>Message Log:<br/>"+result[1].replace("\n","<br/>")+"</p></body></html>\n"
+    ## TODO: Return a (jinja2?) template to display all result[1]'s - should be a list of dict's with status and content
+    return "<html><body><p>Success: {endpoint_status}</p><p>Message Log:<br/>{endpoint_messages}</p></body></html>\n".format(
+        endpoint_status = str(result[0]),
+        endpoint_messages = result[1].replace("\n","<br/>")
+    )
 
+@app.route('/flushmeta/<source_id>')
 @app.route('/flushmeta')
-def flushmeta():
-    """Make a basic http request to the meta container which will then handle the translation of incoming meta-data to i2b2"""
+def flushmeta(source_id:str = None):
+    """Make a basic http request to the meta container which will then handle the removal of appropriate meta-data in i2b2"""
+    if source_id is None:
+        ## Allow ?source_id=xyz in addition to /<source_id>
+        source_id = request.args.get('source_id')
+    logger.info("Flushing i2b2 metadata with source_id: '{}'...".format(source_id))
 
-    meta_update_endpoint = "http://{meta_server}:5000/flush?source_id={src_id}".format(
+    meta_update_endpoint = "http://{meta_server}:5000/flush?source_id={source_id}".format(
         meta_server = os.getenv("META_SERVER"),
-        src_id = os.getenv("generator_sparql_endpoint")
+        source_id = source_id
         )
     logger.debug("Forwarding request to responsible container: {}".format(meta_update_endpoint))
     meta_response = requests.get(meta_update_endpoint)
+    result = [meta_response.ok, meta_response.text]
+    logger.debug("Flushing/clearing of meta with source_id '{}' in i2b2 data complete: {}".format(source_id, result))
+    return "<html><body><p>Success: {endpoint_status}</p><p>Message Log:<br/>{endpoint_messages}</p></body></html>\n".format(
+        endpoint_status = str(result[0]),
+        endpoint_messages = result[1].replace("\n","<br/>")
+    )
+
+@app.route('/update-patient-counts')
+def update_patient_counts():
+    """Make a basic http request to the meta container which will then handle the updating of patient counts in i2b2"""
+    logger.info("Updating i2b2 patient counts...")
+
+    meta_update_endpoint = "http://{meta_server}:5000/update-patient-counts".format(
+        meta_server = os.getenv("META_SERVER")
+        )
+    logger.debug("Forwarding request to responsible container: {}".format(meta_update_endpoint))
+    meta_response = requests.get(meta_update_endpoint)
+    result = [meta_response.ok, meta_response.text]
+    logger.debug("Patient counts updated: {}".format(result))
+    return "<html><body><p>Success: {endpoint_status}</p><p>Message Log:<br/>{endpoint_messages}</p></body></html>\n".format(
+        endpoint_status = str(result[0]),
+        endpoint_messages = result[1].replace("\n","<br/>")
+    )

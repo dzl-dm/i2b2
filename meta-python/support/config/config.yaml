@@ -5,12 +5,14 @@
 # SQLALCHEMY_DATABASE_URI: "postgresql+psycopg2://i2b2:ChangeMe@i2b2.database/i2b2"
 SQLALCHEMY_TRACK_MODIFICATIONS : False
 
+## TODO: These should be user configurable via docker .env
 ## These lower_case variables are ignored by flask's app.config context
 ## Dict of acceptable fuseki sources
 fuseki_sources:
-  "local": "http://dwh.proxy/fuseki/cometar_live/query"
+  "local_cometar": "http://dwh.proxy/fuseki/cometar_live/query"
   "DZL": "https://data.dzl.de/fuseki/cometar_live/query"
 
+local_file_sources: "/var/translator-custom-metadata"
 ## NOTE: File naming convention must be followed:
 ## <source_id/queryname(as below)>.<database_schema>.<database_table>.*
 # local_file_sources:
@@ -28,6 +30,13 @@ fuseki_sources:
 #     ./i2b2demodata.concept_dimension.csv
 #     ./i2b2demodata.modifier_dimension.csv
 #   ./local
+## TODO: Are we still using this prefix? I think the last parts (dates, source_ids) are done in memory from the csv file
+db_prepared_prefix: "dbready"
+# db_prepared_directory: "/tmp/meta-translation"
+## This is for the temporary/intermediate csv files of data from remote sources (like fuseki)
+dynamic_metadata_directory: "/tmp/meta-translation"
+## TODO: What is this dir for?
+csv_out_dir: "/var/metadata-translation/"
 
 max_processing_duration: 600 ## seconds
 generator_mappings:
@@ -45,8 +54,6 @@ i2b2_multipath_container: "MULTI"
 meta_schema: "i2b2metadata"
 ontology_tablename: "i2b2"
 data_schema: "i2b2demodata"
-
-csv_out_dir: "/var/metadata-translation/"
 
 sql_col_object_property_map:
   ## This map can use descending precedence lists to pick a variable which isn't null/empty

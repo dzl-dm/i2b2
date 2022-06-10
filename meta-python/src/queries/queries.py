@@ -1,6 +1,6 @@
 """ queries.py
 Collect all sparql queries in one place
-Utilise the skeletons in resources
+Utilise the skeleton files in resources directory
 """
 from flask import current_app as app
 
@@ -11,7 +11,30 @@ import json
 import os
 import re
 
+## For caching the queries
 sparql_skeletons:dict = None
+
+def run_sql_file(db_conn, filename) -> bool:
+    """Use the database connection and filename supplied to run the SQL in the resources dir"""
+    ## TODO: Concat resources dir (from config) with filename
+    # files_dir = os.getcwd()
+    files_dir = "/src/resources"
+    filepath = os.path.join(files_dir, filename)
+    if not os.path.exists(filepath):
+        logger.warn("Could not find file: {}".format(filepath))
+        return False
+    with open(filepath, 'r') as file:
+        sql_statement = file.read()
+    logger.debug("Running SQL against connection '{}':\n{}".format(db_conn, sql_statement))
+    try:
+        cursor = db_conn.cursor()
+        cursor.execute(sql_statement)
+        logger.debug("SQL Statement complete with no database errors!")
+        return True
+    except Exception as e:
+        db_conn.rollback()
+        logger.error("Failed to run SQL statement...\n{}".format(e))
+        return False
 
 def top_elements(connection) -> dict:
     """Query fuseki/sparql for the parent element names and types"""

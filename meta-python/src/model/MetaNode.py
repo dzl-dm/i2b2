@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 import datetime
 from enum import Enum
 import operator
+import time
 
 class NodeType(Enum):
     """Possible types of node"""
@@ -303,29 +304,32 @@ class MetaNode(object):
 
     @property
     def display_labels(self) -> dict:
-        """Dict or None"""
+        """Dict or None
+        (k is label, v is language tag)
+        """
         if self._display_labels and len(self._display_labels) > 0:
             return self._display_labels
         else:
-            # return self.pref_labels
             return None
     @property
     def display_label(self) -> str:
         """ Get English display_label (or German if no English) """
-        # logger.debug("Searching for the right display label from dict: {}".format(self.display_labels))
+        logger.debug("Searching for the right display label for '{}' from dict: {}".format(self.name, self.display_labels))
         if not self.display_labels or len(self.display_labels) == 0:
             # logger.debug("Empty display label")
             single_label = ""
+        elif len(self.display_labels) == 1:
+            ## When there is no choice, no need to do more complex processing
+            single_label = list(self.display_labels.keys())[0]
         elif "en" in self.display_labels.values():
             keys_with_en = [k for k, v in self.display_labels.items() if v == "en"]
             # if operator.countOf(self.display_labels.values(), "en") == 1:
-            # logger.debug("en keys: {}".format(keys_with_en))
-            if len(keys_with_en) == 1:
-                # logger.debug("en display label at index 0 (only 1 available!): {}".format(keys_with_en[0]))
+            logger.debug("en keys: {}".format(keys_with_en))
+            single_label = keys_with_en[0]
+            if len(keys_with_en) > 1:
                 single_label = keys_with_en[0]
-            else:
-                logger.warn("More than 1 @en display labels! '{}'".format(self.display_labels))
-                single_label = keys_with_en[0]
+                # single_label = keys_with_en[-1]
+                logger.warn("More than 1 @en display_label ({}) for {}! Chosen: '{}'".format(self.display_labels, self.name, single_label))
         else:
             # logger.debug("First display label  in dict")
             single_label = self.display_labels.keys()[0]
@@ -489,7 +493,9 @@ class MetaNode(object):
             ## If multiple notations, use NotationNode objects to populate the additional csv lines
             for notation_obj in self.notations.values():
                 lines["i2b2"].append(MetaNode._data_to_csv(ordered_cols = i2b2_cols, d = notation_obj.__dict__(), table_name = "i2b2", schema_name = "i2b2metadata"))
-            logger.debug("Multiple notations for '{}'...\n{}".format(self.name, lines))
+            simplified_lines = {}
+            simplified_lines["i2b2"] = [v[0:6] for v in lines["i2b2"]]
+            logger.debug("Multiple notations for '{}'...\n{}".format(self.name, simplified_lines))
 
         ta_cols = ["c_table_cd", "c_table_name", "c_protected_access", "c_ontology_protection", "c_hlevel", "c_fullname", "c_name", "c_synonym_cd", "c_visualattributes", "c_totalnum", "c_basecode", "c_metadataxml", "c_facttablecolumn", "c_dimtablename", "c_columnname", "c_columndatatype", "c_operator", "c_dimcode", "c_comment", "c_tooltip", "c_entry_date", "c_change_date", "c_status_cd", "valuetype_cd"]
         if self.top_level_node:
@@ -593,12 +599,14 @@ class MetaNode(object):
     def whole_tree_csv(self, lines:dict = None) -> dict:
         """dict with 4 lists for each table in: i2b2metadata{table_access,i2b2}, i2b2demodata{concept_dimension,modifier_dimension}"""
         logger.info("Adding csv lines for '{}' ({}): {}".format(self.name, self.node_type_pretty, self.node_uri))
+        # time.sleep(4)
         if lines is None:
             lines = {"i2b2metadata":{"table_access": [], "i2b2": []},"i2b2demodata":{"concept_dimension": [], "modifier_dimension": []}}
         if self.top_level_node:
             logger.debug("#### ~~~~ STARTING whole tree CSV ~~~~ ####")
             logger.debug("Starting point for meta_csv: {}".format(lines["i2b2metadata"]))
             logger.debug("Starting point for data_csv: {}".format(lines["i2b2demodata"]))
+            # time.sleep(2)
 
         i2b2metadata_csv = self.meta_csv
         if i2b2metadata_csv is not None:
@@ -622,8 +630,10 @@ class MetaNode(object):
                 lines = child.whole_tree_csv(lines)
         if self.top_level_node:
             logger.debug("#### ~~~~ FINISHED whole tree CSV ~~~~ ####")
-            logger.debug("Finished meta_csv: {}".format(lines["i2b2metadata"]))
-            logger.debug("Finished data_csv: {}".format(lines["i2b2demodata"]))
+            # logger.debug("Finished meta_csv: {}".format(lines["i2b2metadata"]))
+            # logger.debug("Finished data_csv: {}".format(lines["i2b2demodata"]))
+            logger.debug("Finished meta_csv - (i2b2: {}) (table_access: {})".format(len(lines["i2b2metadata"]["i2b2"]), len(lines["i2b2metadata"]["table_access"])))
+            logger.debug("Finished data_csv - (concept_dimension: {}) (modifier_dimension: {})".format(len(lines["i2b2demodata"]["concept_dimension"]), len(lines["i2b2demodata"]["concept_dimension"])))
             logger.debug("#### ~~~~ FINISHED whole tree CSV ~~~~ ####")
         return lines
 
@@ -704,44 +714,43 @@ class MetaNode(object):
         d["ontology_tablename"] = app.config["ontology_tablename"]
         for col_name in ordered_cols:
             new_value = ""
-            if col_name in app.config["fixed_value_cols"]:
-                ## Inject fixed values for some columns (see sql inserts)
-                if schema_name and table_name and "{sn}{sep}{tn}{sep}{cn}".format(sep="-", sn=schema_name, tn=table_name, cn=col_name) in app.config["fixed_value_cols"]:
-                    new_value = str(app.config["fixed_value_cols"].get("{sn}{sep}{tn}{sep}{cn}".format(sep="-", sn=schema_name, tn=table_name, cn=col_name), ""))
-                elif table_name and "{tn}{sep}{cn}".format(sep="-", tn=table_name, cn=col_name) in app.config["fixed_value_cols"]:
-                    new_value = str(app.config["fixed_value_cols"].get("{tn}{sep}{cn}".format(sep="-", tn=table_name, cn=col_name), ""))
-                else:
-                    new_value = str(app.config["fixed_value_cols"].get(col_name, ""))
+            real_property_options = None
+            real_property = None
+            ## Inject fixed values for some columns (see sql inserts) OR
+            ## Lookup name map as sql cols can differ from attribute/property names in code. Also can implement preference list to avoid empty values
+            if schema_name and table_name and "{sn}{sep}{tn}{sep}{cn}".format(sep="-", sn=schema_name, tn=table_name, cn=col_name) in app.config["fixed_value_cols"]:
+                new_value = str(app.config["fixed_value_cols"].get("{sn}{sep}{tn}{sep}{cn}".format(sep="-", sn=schema_name, tn=table_name, cn=col_name), ""))
+            elif schema_name and table_name and "{sn}{sep}{tn}{sep}{cn}".format(sep="-", sn=schema_name, tn=table_name, cn=col_name) in app.config["sql_col_object_property_map"]:
+                # logger.info("Mapping SQL column '{}' to object attribute '{}'".format(col_name, [y for x,y in app.config["sql_col_object_property_map"].items() if col_name in x]))
+                real_property_options = app.config["sql_col_object_property_map"].get("{sn}{sep}{tn}{sep}{cn}".format(sep="-", sn=schema_name, tn=table_name, cn=col_name), "")
+            elif table_name and "{tn}{sep}{cn}".format(sep="-", tn=table_name, cn=col_name) in app.config["fixed_value_cols"]:
+                new_value = str(app.config["fixed_value_cols"].get("{tn}{sep}{cn}".format(sep="-", tn=table_name, cn=col_name), ""))
+            elif table_name and "{tn}{sep}{cn}".format(sep="-", tn=table_name, cn=col_name) in app.config["sql_col_object_property_map"]:
+                real_property_options = app.config["sql_col_object_property_map"].get("{tn}{sep}{cn}".format(sep="-", tn=table_name, cn=col_name), "")
+            elif col_name in app.config["fixed_value_cols"]:
+                new_value = str(app.config["fixed_value_cols"].get(col_name, ""))
             elif col_name in app.config["sql_col_object_property_map"]:
-                ## Lookup name map as sql cols can differ from attribute/property names in code. Also can implement preference list to avoid empty values
-                # real_property = str(app.config["sql_col_object_property_map"].get(col_name, ""))
-                logger.info("Mapping SQL column '{}' to object attribute '{}'".format(col_name, [y for x,y in app.config["sql_col_object_property_map"].items() if col_name in x]))
-                if schema_name and table_name and "{sn}{sep}{tn}{sep}{cn}".format(sep="-", sn=schema_name, tn=table_name, cn=col_name) in app.config["sql_col_object_property_map"]:
-                    real_property_options = app.config["sql_col_object_property_map"].get("{sn}{sep}{tn}{sep}{cn}".format(sep="-", sn=schema_name, tn=table_name, cn=col_name), "")
-                elif table_name and "{tn}{sep}{cn}".format(sep="-", tn=table_name, cn=col_name) in app.config["sql_col_object_property_map"]:
-                    real_property_options = app.config["sql_col_object_property_map"].get("{tn}{sep}{cn}".format(sep="-", tn=table_name, cn=col_name), "")
-                else:
-                    real_property_options = app.config["sql_col_object_property_map"].get(col_name, "")
-                logger.debug("Mapping SQL col '{}' from fuseki properties in map '{}' (Type: {})".format(col_name, real_property_options, type(real_property_options)))
-                if type(real_property_options) is str:
-                    real_property = real_property_options
-                else:
-                    ## Must be a list of options - TODO: we should check and/or try/except
-                    real_property = ""
-                    for attempt_property in real_property_options:
-                        if d.get(attempt_property, None) is not None and str(d.get(attempt_property, "")) != "":
-                        # if attempt_property in d and str(d.get(attempt_property, "")) != "":
-                            logger.debug("Found non-empty useful value with prop '{}': '{}'".format(attempt_property, str(d.get(attempt_property, ""))))
-                            real_property = attempt_property
-                            break
-                        else:
-                            logger.debug("Found empty/useless value with prop '{}': {}".format(attempt_property, str(d.get(attempt_property, ""))))
-                            pass
-                new_value = str(d.get(real_property, ""))
-                logger.debug("mismatched sql({})/object({}) name for '{}', value: {}".format(col_name, real_property, d["pref_label"], new_value))
+                real_property_options = app.config["sql_col_object_property_map"].get(col_name, "")
+                # logger.debug("Mapping SQL col '{}' from fuseki properties in map '{}' (Type: {})".format(col_name, real_property_options, type(real_property_options)))
             else:
                 new_value = str(d.get(col_name, ""))
                 logger.debug("Matched and available col_name ({}) name for '{}', value: {}".format(col_name, d["pref_label"], new_value))
+            if real_property_options and type(real_property_options) is str:
+                real_property = real_property_options
+            elif real_property_options and type(real_property_options) is list:
+                real_property = ""
+                for attempt_property in real_property_options:
+                    if d.get(attempt_property, None) is not None and str(d.get(attempt_property, "")) != "":
+                    # if attempt_property in d and str(d.get(attempt_property, "")) != "":
+                        logger.debug("Found non-empty useful value with prop '{}': '{}'".format(attempt_property, str(d.get(attempt_property, ""))))
+                        real_property = attempt_property
+                        break
+                    else:
+                        logger.debug("Found empty/useless value with prop '{}': {}".format(attempt_property, str(d.get(attempt_property, ""))))
+                        pass
+            if real_property:
+                new_value = str(d.get(real_property, ""))
+                logger.debug("mismatched sql({})/object({}) name for '{}', value: {}".format(col_name, real_property, d["pref_label"], new_value))
             if first:
                 first = False
                 line = [new_value]
