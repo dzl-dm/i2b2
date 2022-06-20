@@ -72,7 +72,7 @@ def updatemeta(source_id:str = None):
         meta_server = os.getenv("META_SERVER"),
         source_id = source_id
         )
-    meta_flush = "http://{meta_server}:5000/flush?source_id={source_id}".format(
+    meta_flush = "http://{meta_server}:5000/flush-metadata?source_id={source_id}".format(
         meta_server = os.getenv("META_SERVER"),
         source_id = source_id
         )
@@ -113,7 +113,7 @@ def flushmeta(source_id:str = None):
         source_id = request.args.get('source_id')
     logger.info("Flushing i2b2 metadata with source_id: '{}'...".format(source_id))
 
-    meta_update_endpoint = "http://{meta_server}:5000/flush?source_id={source_id}".format(
+    meta_update_endpoint = "http://{meta_server}:5000/flush-metadata?source_id={source_id}".format(
         meta_server = os.getenv("META_SERVER"),
         source_id = source_id
         )

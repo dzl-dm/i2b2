@@ -19,8 +19,10 @@ COPY support/ /
 ## Copy project files over
 COPY src /src
 
-ENV LOG_CONF_PATH=${LOG_CONF_PATH:-'/config/logging.yaml'}
-ENV APP_CONF_PATH=${APP_CONF_PATH:-'/config/config.yaml'}
+## These should not be user configurable, they are locations built into the docker container
+ENV LOG_CONF_PATH='/config/logging.yaml'
+ENV APP_CONF_PATH='/config/config.yaml'
+ENV USER_CONF_PATH='/config/i2b2meta_user_config.yaml'
 
 ENV I2B2DBHOST=${I2B2DBHOST:-i2b2.database}
 ENV I2B2DBPORT=${I2B2DBPORT:-5432}

@@ -19,10 +19,6 @@ import psycopg2.sql
 import time
 from typing import Tuple
 
-def prepare_filesystem():
-    """Ensure directories exist and old files are cleaned up before processing starts"""
-    pass
-
 ## TODO: Make a "source" class for these functions?
 def source_info(source_id:str) -> Tuple[str, str, list[str], dt]:
     """Search for the source_id in the possible sources (eg fuseki or local files)"""
@@ -79,22 +75,7 @@ def pull_fuseki_datatree(fuseki_endpoint:str, source_id:str) -> dict:
     conn = connection.get_fuseki_connection(fuseki_endpoint, "requests", source_id = source_id)
     top_elements:dict = queries.top_elements(conn)
     for node_uri, node_type in top_elements.items():
-        ## Wait to allow connections to be returned by system (NOTE: testing when using sparqlwrapper, which doesn't reuse connections!)
-        # time.sleep(125)
-        # sparql_wrapper = queries.get_sparql_wrapper(fuseki_endpoint)
         metadata_trees[source_id].append(get_tree(conn, node_uri, node_type))
-    ##TEST:
-    # check_attrs = ["datatype_xml", "visual_attribute", "concept_long", "test"]
-    # for check_attr in check_attrs:
-    #     show = "NULL"
-    #     if hasattr(metadata_trees[source_id][0], check_attr):
-    #         show = getattr(metadata_trees[source_id][0], check_attr)
-    #     logger.debug("parent.datatype_xml ({}): {}".format(hasattr(metadata_trees[source_id][0], check_attr), show))
-    # logger.debug("dict(parent): {}".format(dict(metadata_trees[source_id][0])))
-    # logger.debug("parent.__dict__: {}".format(metadata_trees[source_id][0].__dict__()))
-    # # serialise_data(metadata_trees[source_id][0])
-    # logger.debug("JSON-ised tree: {}".format(serialise_tree(metadata_trees[source_id][0], output_type="json")))
-    # logger.debug("CSV dump of tree: {}".format(serialise_tree(metadata_trees[source_id][0], output_type="csv")))
     return metadata_trees
 
 def get_tree(conn, node_uri:str, node_type:str, parent_node:object = None):
@@ -105,10 +86,9 @@ def get_tree(conn, node_uri:str, node_type:str, parent_node:object = None):
     children = queries.getChildren(conn, node_uri)
     for node_uri, node_type in children.items():
         get_tree(conn, node_uri, node_type, new_parent)
-    # data = {"status_code": 200, "content": new_parent}
     return new_parent
 
-def _element(conn, node_uri:str = "<http://data.dzl.de/ont/dwh#PHQ4>", node_type:str = "concept", parent_node:object = None) -> object:
+def _element(conn, node_uri:str, node_type:str = "concept", parent_node:object = None) -> object:
     """Get a single node - with all its details"""
     logger.info("Fetching the node data for '{}'".format(node_uri))
     from queries import queries
@@ -134,41 +114,6 @@ def _element(conn, node_uri:str = "<http://data.dzl.de/ont/dwh#PHQ4>", node_type
         sourcesystem_cd = conn["source_id"]
     )
     return new_elem
-
-def serialise_data(parent_node:object):
-    """Use pickle to save the node objects to file"""
-    # import pickle
-    # logger.info("Pickling data...")
-    # with open('node_data.txt', 'wb') as fh:
-    #     pickle.dump(parent_node, fh)
-
-    import json
-    logger.info("Serialising data to JSON...")
-    with open('node_data.json', 'wb') as fh:
-        json.dump(parent_node, fh)
-
-    logger.debug("Done!")
-    
-def serialise_tree(parent:object, output_type:str = "csv") -> str:
-    """Call the __dict__ function of the parent, then all children recursively"""
-    logger.info("Generating '{}'-tpye serialised output for tree...".format(output_type))
-    if output_type == "csv":
-        serialised_data = parent.whole_tree_csv()
-    elif output_type == "json":
-        json_tree = parent.__dict__()
-        json_tree["child_nodes"] = serialise_children(parent)
-        serialised_data = json_tree
-    return serialised_data
-
-def serialise_children(node:object) -> str:
-    """Call the __dict__ function of the node and use as JSON"""
-    child_trees = []
-    if node.child_nodes is not None and len(node.child_nodes) > 0:
-        for child in node.child_nodes:
-            child_tree = child.__dict__()
-            child_tree["child_nodes"] = serialise_children(child)
-            child_trees.append(child_tree)
-    return child_trees
 
 def combine_csv_trees(trees:list) -> dict:
     """Combine multiple CSV trees with the same schema/table structure"""
@@ -204,204 +149,6 @@ def write_csv(csv_tree:dict, sourcesystem_id:str, out_dir:str, output_delim:str 
     except Exception as e:
         logger.error("Failed to write CSV data: {}".format(e))
         return False
-
-def csv_to_database(db_conn, out_dir:str, input_delim:str = ";", output_delim:str = ",", sources:list = None):
-    """Adjust CSV data to include elements like sourcesystem_cd, then add to database"""
-    ## Get list of sources to be updated (by reading CSV filenames?)
-    db_prepared_prefix = "dbready."
-    possible_files = os.listdir(out_dir)
-
-    # if sources is None:
-        ## Assume all sources which exist in the processing directory
-        # for file_name in possible_files:
-        #     # if db_prepared_prefix in file_name:
-        #     #     logger.error("Files already processed, stopping")
-        #     #     return None
-        #     if db_prepared_prefix in file_name:
-        #         logger.warn("Files already processed, continuing anyway...")
-    if sources is None:
-        sources = list(set([f.split(".")[0] for f in possible_files if not f.startswith(db_prepared_prefix) and os.path.isfile(os.path.join(out_dir, f))]))
-        logger.debug("Updating sources: {}".format(sources))
-    base_files = [f for f in possible_files if f.split(".")[0] in sources]
-    logger.debug("CSV file list: {}".format(base_files))
-
-    ## Update col limits
-    type_limits = app.config["i2b2db_col_limits"]
-    if type_limits:
-        for current_schema, current_tables in type_limits.items():
-            if current_tables:
-                for current_table, table_limits in current_tables.items():
-                    update_col_limits(db_conn, current_schema, current_table, table_limits)
-                    # logger.debug("Col limits after updating: {}".format(_get_col_limits(db_conn, current_schema, current_table)))
-
-    ## Clean CSV (write to new file)
-    for csv_file in base_files:
-        current_source = csv_file.split(".")[0]
-        current_schema = csv_file.split(".")[1]
-        current_table = csv_file.split(".")[2]
-        ## get dict of cols and length so we can update and trim
-        col_limits = _get_col_limits(db_conn, current_schema, current_table)
-        with open(os.path.join(out_dir, csv_file), 'r') as base, open(os.path.join(out_dir, "{}{}".format(db_prepared_prefix, csv_file)), 'w') as prepared_file:
-            reader = csv.DictReader(base, fieldnames=list(col_limits.keys()), skipinitialspace=True, delimiter = input_delim)
-            writer = csv.DictWriter(prepared_file, fieldnames=list(col_limits.keys()), delimiter = output_delim)
-            for row in reader:
-                new_row, changed = shorten_csv_data(row, col_limits, current_schema, current_table)
-                if changed:
-                    logger.debug("Updating row...\nold: {}\nnew:{}".format(row, new_row))
-                new_row, changed = add_source(new_row, current_source, current_schema, current_table)
-                logger.debug("Writing prepared row: {}".format(new_row))
-                writer.writerow(new_row)
-    prepared_file_names = [f for f in os.listdir(out_dir) if os.path.isfile(os.path.join(out_dir, f)) and f.startswith(db_prepared_prefix) and f.split(".")[1] in sources]
-    logger.info("Prepared CSV files in '{}'... {}".format(out_dir, prepared_file_names))
-
-    ## Clean i2b2 data from sources to be updated and write new data
-    try:
-        ## DELETE statements...
-        if clean_sources_in_database(db_conn, sources):
-            prepared_file_paths = [os.path.join(out_dir, x) for x in prepared_file_names]
-            ## Push csv data to database
-            if push_csv_to_database(db_conn, prepared_file_paths):
-                ## Commit only if delete and insert stages are successful
-                logger.debug("Commiting to database...")
-                db_conn.commit()
-            else:
-                db_conn.rollback()
-                logger.error("Failed to complete database INSERTs")
-        else:
-            db_conn.rollback()
-            logger.error("Failed to complete database DELETEs, not proceding with inserts...")
-    except Exception as e:
-        db_conn.rollback()
-        logger.error("Failed to complete database update...\n{}".format(e))
-    finally:
-        db_conn.close()
-    ## TODO: Clean up CSV files?
-
-    return True
-
-def prepare_custom_queries(source_id:str, source_dir:str, delim = ";") -> list:
-    """Ensure all the columns which are needed are populated
-    File must have header line"""
-    if not os.path.isdir(source_dir):
-        logger.error("Source dir ({}) does not exist - cannot process further".format(source_dir))
-        return False
-    db_prepared_prefix = "dbready."
-    possible_files = os.listdir(source_dir)
-    ## Custom files have source_id as their parent dir, not in the filename - but it must be a csv file, then we can allow readme.md etc and not break this code
-    # base_files = [x for x in possible_files if x.split(".")[0] == source_id]
-    base_files = [x for x in possible_files if x.split(".")[-1] == "csv"]
-    logger.debug("Base files: {}".format(base_files))
-    out_dir = "/tmp/"
-    for csv_file in base_files:
-        # current_source = csv_file.split(".")[0]
-        current_schema = csv_file.split(".")[1]
-        current_table = csv_file.split(".")[2]
-        ## get dict of cols and length so we can update and trim
-        with open(os.path.join(source_dir, csv_file), 'r') as base, open(os.path.join(out_dir, "{}{}.{}".format(db_prepared_prefix, source_id, csv_file)), 'w') as prepared_file:
-            reader = csv.DictReader(base, skipinitialspace=True, delimiter = delim)
-            first = True
-            for row in reader:
-                if first:
-                    first = False
-                    headers = list(row.keys())
-                    logger.debug("Headers: {}".format(headers))
-                    logger.debug("For schema.table: {}.{}".format(current_schema, current_table))
-                    if "sourcesystem_cd" not in headers and "{}.{}".format(current_schema, current_table) != "i2b2metadata.table_access":
-                        ##TODO: Make condition check database columns for the current table - rather than hard coding a specific case
-                        ## If the table should have "sourcesystem_cd" column, add it
-                        ## TODO: Otherwise add it somehow, eg in c_table_cd for table_access
-                        headers.append("sourcesystem_cd")
-                        logger.debug("Added sourcesystem_cd to headers...")
-                    writer = csv.DictWriter(prepared_file, fieldnames=headers)
-                    writer.writeheader()
-
-                new_row = row
-                if "sourcesystem_cd" in headers:
-                    new_row["sourcesystem_cd"] = source_id
-                if "sourcesystem_cd" not in headers and "{}.{}".format(current_schema, current_table) == "i2b2metadata.table_access":
-                    new_row["c_table_cd"] = "{}_{}".format(source_id, new_row["c_table_cd"])
-                    logger.debug("Adjusted c_table_cd to include sourcesystem_cd: {}".format(source_id))
-                logger.debug("Writing prepared row: {}".format(new_row))
-                writer.writerow(new_row)
-    prepared_file_paths = [os.path.join(out_dir, f) for f in os.listdir(out_dir) if os.path.isfile(os.path.join(out_dir, f)) and f.startswith(db_prepared_prefix) and f.split(".")[1] == source_id]
-    logger.info("Prepared CSV files in '{}'... {}".format(out_dir, prepared_file_paths))
-    return prepared_file_paths
-
-def prepare_csv_files(db_conn, base_filepaths:list[str], source_id:str, delim:str = ";") -> list[str]:
-    """Process each step a plain CSV file should go through to be database ready
-    
-    The incomming CSV files must have a header line
-    1) Add source_id's
-    2) Add dates
-    3) Shorten fields which are too long
-    4) Output to files following a consistent naming convention
-
-    Output directory and filename prefix come from config file
-
-    :return: list of filepaths of output files which are ready to be inseted to the database
-    """
-    prepared_file_paths = []
-    for csv_filepath in base_filepaths:
-        csv_filename = os.path.basename(csv_filepath)
-        if source_id in csv_filename:
-            ## Fuseki based csv's will have source_id as the first part
-            schema_position_index = 1
-        else:
-            ## Custom file based csv's use the directory as source_id, so start with schema
-            schema_position_index = 0
-        current_schema, current_table = csv_filename.split(".")[schema_position_index:schema_position_index + 1]
-        out_file_extension = "csv"
-        out_filename = ".".join(app.config["db_prepared_prefix"], source_id, current_schema, current_table, out_file_extension)
-        out_filepath = os.path.join(app.config["db_prepared_directory"], out_filename)
-        col_limits = _get_col_limits(db_conn, current_schema, current_table)
-        if not os.path.exists(app.config["db_prepared_directory"]):
-            logger.debug("Creating path '{}'...".format(app.config["db_prepared_directory"]))
-            os.makedirs(app.config["db_prepared_directory"])
-        with open(csv_filepath, 'r') as base, open(out_filepath, 'w') as prepared_file:
-            reader = csv.DictReader(base, skipinitialspace=True, delimiter = delim)
-            first = True
-            for row in reader:
-                if first:
-                    first = False
-                    headers = list(row.keys())
-                    logger.debug("Headers: {}".format(headers))
-                    logger.debug("For schema.table: {}.{}".format(current_schema, current_table))
-                    if "sourcesystem_cd" not in headers and "{}.{}".format(current_schema, current_table) != "i2b2metadata.table_access":
-                        ##TODO: Make condition check database columns for the current table - rather than hard coding a specific case
-                        ## If the table should have "sourcesystem_cd" column, add it
-                        ## TODO: Otherwise add it somehow, eg in c_table_cd for table_access
-                        headers.append("sourcesystem_cd")
-                        logger.debug("Added sourcesystem_cd to headers...")
-                    writer = csv.DictWriter(prepared_file, fieldnames=headers)
-                    writer.writeheader()
-
-                new_row = _add_source_id_to_row(headers, row, source_id, current_schema, current_table)
-                new_row = shorten_csv_data(new_row, col_limits, current_schema, current_table)
-
-                logger.debug("Writing prepared row: {}".format(new_row))
-                writer.writerow(new_row)
-        prepared_file_paths.append(out_filepath)
-    logger.info("Prepared CSV files in '{}'... {}".format(app.config["db_prepared_directory"], prepared_file_paths))
-    return prepared_file_paths
-
-def _find_file_paths(source_id:str, source_type:str) -> Tuple[list, dt]:
-    """If source is local file based, or sources have already been fetched, return local file paths with data for source_id
-    
-    Also provide timestamp of most recently updated file
-    """
-
-
-    pass
-
-def _add_source_id_to_row(headers, row, source_id, current_schema, current_table):
-    """Add source id in its own column where possbile, otherwise integrate in another column for identification"""
-    new_row = row
-    if "sourcesystem_cd" in headers:
-        new_row["sourcesystem_cd"] = source_id
-    elif "sourcesystem_cd" not in headers and "{}.{}".format(current_schema, current_table) == "i2b2metadata.table_access":
-        new_row["c_table_cd"] = "{}_{}".format(source_id, new_row["c_table_cd"])
-        logger.debug("Adjusted c_table_cd to include sourcesystem_cd: {}".format(source_id))
-    return new_row
 
 def update_col_limits(db_conn, schema:str, table:str, limits:dict = None) -> bool:
     """Set limits for any defined cols the schema/table
@@ -477,13 +224,14 @@ def add_source(row:dict, source_id:str, schema = None, table = None) -> tuple[di
         ## Add to table_access c_table_cd
         ## HACK: Ensure c_table_cd always starts with i2b2_
         if not str(new_row["c_table_cd"]).startswith("i2b2_"):
+            logger.warn("Adding prefix 'i2b2_' for c_table_cd column")
             new_row["c_table_cd"] = "{}{}".format("i2b2_", row["c_table_cd"])
         ## TODO: This is hard coding that the c_table_cd starts with i2b2_ - that may not always be the case!
         if "i2b2_" in new_row["c_table_cd"]:
             new_row["c_table_cd"] = new_row["c_table_cd"].replace("i2b2_", "i2b2_{}_".format(source_id))
             changed = True
         else:
-            logger.warn("new_row[\"c_table_cd\"] ({}) in '{}.{}' does not contain 'i2b2_' so will not have the source_id ({}) added".format(
+            logger.warn("new_row[\"c_table_cd\"] ({}) in '{}.{}' does not contain 'i2b2_' so will not have the source_id/sourcesystem_cd ({}) added".format(
                 new_row,
                 schema,
                 table,
@@ -524,6 +272,7 @@ def update_headers(row:dict, table_headers:list) -> tuple[dict, bool]:
     if "sourcesystem_cd" in table_headers and "sourcesystem_cd" not in row.keys():
         # logger.info("Adding 'sourcesystem_cd' to data...")
         new_row["sourcesystem_cd"] = None
+        changed = True
     return new_row, changed
 
 def push_csv_to_database(db_conn, source_id:str, prepared_file_paths:list, delim:str = ","):
@@ -541,6 +290,7 @@ def push_csv_to_database(db_conn, source_id:str, prepared_file_paths:list, delim
     ## TODO: Work with unknown delimiters (mostly , or ;)? Or always with ,?
     if prepared_file_paths and len(prepared_file_paths) > 0:
         upload_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.0")
+        logger.info("Updating database with data from CSV files... {}".format(prepared_file_paths))
         ## Update col limits
         type_limits = app.config["i2b2db_col_limits"]
         if type_limits:

@@ -22,7 +22,15 @@ logging.config.dictConfig(log_config)
 # logger.debug("Logging loaded and configured")
 
 def load_settings(app_context):
-    """Add the yaml based settings to the app context"""
+    """Add the yaml based settings to the app context
+    
+    First load user settings, then internal settings (so they override the user in case they use the same variable name)
+    """
+    app_settings:dict = {}
+    with open(os.getenv("USER_CONF_PATH"), "r") as yaml_file:
+        app_settings = yaml.safe_load(yaml_file)
+    for k, v in app_settings.items():
+        app_context.config[k] = v
     app_settings:dict = {}
     with open(os.getenv("APP_CONF_PATH"), "r") as yaml_file:
         app_settings = yaml.safe_load(yaml_file)
@@ -49,21 +57,16 @@ import meta
 ## TODO: Track state for each source_id?
 is_running = False
 
-## TODO: Remove - should be an admin console page, in the future
+## TODO: Should be an admin console page, in the future
 @app.route('/')
-def index(fuseki_endpoint:str = None, source_id:str = None):
-    app.logger.info("Running index route defaulting to 'single' route...")
-    ## For when params are supplied via ?param1=value1&param2=value2
-    if fuseki_endpoint is None:
-        fuseki_endpoint = request.args.get('fuseki_endpoint')
-    if source_id is None:
-        source_id = request.args.get('source_id')
+def index():
+    app.logger.info("Running index route...")
 
-    response = single(fuseki_endpoint, source_id)
+    response = "<html><body><h1>I2B2 API</h1><p>This page does not yet have any content. Please try an alternative endpoint to utilise the functionality which has been implemented</p></body></html>\n"
     return response
 
-@app.route('/flush')
-@app.route('/flush/<source_id>')
+@app.route('/flush-metadata')
+@app.route('/flush-metadata/<source_id>')
 def flush(source_id:str = None):
     """Flush any existing data with the given source id - both local files and i2b2 database?"""
     app.logger.info("Running flush route to remove metadata with source_id '{}' from i2b2 and local files...".format(source_id))
@@ -99,15 +102,6 @@ def flush(source_id:str = None):
         response['status_code'] = 400
         response['content'] = "source_id not provided: '{}'".format(source_id)
     return response
-
-## TODO: This should be protected
-## TODO: Config must be updated to match
-@app.route('/rename')
-def rename(existing_source_id:str = None, new_source_id:str = None):
-    """Rename entries with matching source_id"""
-    app.logger.info("Renaming database entries with source_id '{}' to: {}".format(existing_source_id, new_source_id))
-    app.logger.debug("Not yet implemented")
-    pass
 
 @app.route('/fetch-and-generate-csv')
 @app.route('/fetch-and-generate-csv/<source_id>')
@@ -147,6 +141,7 @@ def fetch(fuseki_endpoint:str = None, source_id:str = None):
         return response
     else:
         response["content"] = "Unknown source_id '{}'. Please ensure its configured or defined correctly".format(source_id)
+        response['status_code'] = 400
         app.logger.warn(response["content"])
         return response
 
@@ -288,113 +283,5 @@ def update_patient_counts():
         response['status_code'] = 500
         app.logger.warn("Processing failed!")
 
-    app.logger.info(response)
-    return response
-
-
-@app.route('/prepare-custom-query')
-@app.route('/prepare-custom-query/<source_id>')
-def prepare_custom_query(source_id:str = None):
-    """Use local files to prepare custom queries ready for database insertion"""
-    if source_id is None:
-        source_id = request.args.get('source_id')
-    app.logger.info("Supplied vars...\nsource_id: {}".format(source_id))
-
-    response = {}
-    response['status_code'] = 500
-    response['content'] = ""
-    source_type, source_dir, source_file_paths, source_update = meta.source_info(source_id)
-    if source_type == "local_files":
-        source_dir = os.path.join(app.config["local_file_sources"], source_id)
-        app.logger.info("Generating i2b2 data for source_id '{}' from files in directory: {}".format(source_id, source_dir))
-    else:
-        response["content"] = "Source type '{}' for source_id '{}' is not compatible with the update-custom-query endpoint".format(source_id)
-        response['status_code'] = 500
-        return response
-
-    ## Steps:
-    # Check system (directories exist etc?)
-    # Get file names which need updating
-    # Update csv file (creating new, database ready files)
-        # add source_id's
-        # add date/time's - added later in memory before db push
-        # Write consistent output filename to /tmp/meta-translator
-    # Push to database
-    # Clear temporary files
-    db_conn = connection.get_database_connection(
-        os.getenv("I2B2DBHOST"),
-        os.getenv("I2B2DBNAME"),
-        os.getenv("DB_ADMIN_USER"),
-        os.getenv("DB_ADMIN_PASS")
-    )
-    base_filepaths = [os.path.join(source_dir, x) for x in os.listdir(source_dir)]
-    prepared_file_paths = meta.prepare_csv_files(db_conn, base_filepaths, source_id)
-    ## TODO: Check here for any files which should be removed
-    # - eg old files which match <db_prepared_directory>/<db_prepared_prefix>.<source_id>
-    # But are not in the newly generated prepared_file_paths (because of the decoupling, we can't actually use that list!)
-
-    ## TODO: This should only prepare - 
-    ## TODO: Should this final prep-step be part of the push? Then we can use the prepared_file_paths list and it'll be slicker...
-    ## Update the CSV files with timestamps and source_id - then push to database
-    # prepared_file_paths = meta.prepare_custom_queries(source_id, source_dir)
-    if prepared_file_paths and len(prepared_file_paths) > 0:
-        response['content'] += "{}\n".format("Files prepared for source_id: {}!".format(source_id))
-        if meta.push_csv_to_database(db_conn, source_id, prepared_file_paths, delim):
-            db_conn.commit()
-            app.logger.info("Pushing data to database succeeded!")
-            response['content'] += "{}\n".format("Data pushed to database!")
-            response['status_code'] = 200
-        else:
-            app.logger.error("Pushing data to database failed!")
-            response['content'] += "{}\n".format("Pushing data to database failed!")
-            response['status_code'] = 500
-            return response
-    else:
-        app.logger.error("No prepared_file_paths ({}) available - cannot push to database".format(prepared_file_paths))
-        response['content'] += "{}\n".format("Processing did not produce any data for the database!".format(source_id))
-        response['status_code'] = 500
-        return response
-    return response
-
-@app.route('/testtop/')
-def testtop():
-    app.logger.info("Running testtop route...")
-    from queries import queries
-    from queries import connection
-    fuseki_endpoint = "https://data.dzl.de/fuseki/cometar_live/query"
-    connection = connection.get_fuseki_connection(fuseki_endpoint, "requests")
-    top_elements:dict = queries.top_elements(connection)
-    # node_uri, node_type = iter(next(top_elements))
-    # queries.ge metadata_trees[source_id].append(get_tree(sparql_wrapper, node_uri, node_type))
-    connection["session"].close()
-    return {"status": 200, "content": "Test complete - see logs\n{}".format(top_elements)}
-
-@app.route('/testtree')
-def testtree():
-    app.logger.info("Running testtree route...")
-    import meta
-    result = None
-    response = {}
-    app.logger.info("Running test functions...")
-    response['status_code'] = 200
-    response['content'] = ""
-    node_url = "http://loinc.org/owl#2458-8"
-    fuseki_endpoint = "https://data.dzl.de/fuseki/cometar_live/query"
-    source_id = "test"
-
-    from queries import connection
-    connection = connection.get_fuseki_connection(fuseki_endpoint, "requests")
-
-    result = meta.get_tree(connection, node_url, "concept")
-    sql_trees = result.whole_tree_inserts()
-    app.logger.info("## ** ---------- ---------- ---------- ** ##")
-    app.logger.info("Whole tree SQL inserts:\n{}".format(sql_trees))
-    app.logger.info("## ** ---------- ---------- ---------- ** ##")
-    response['content'] += "{}\n".format(result)
-    ## Dummy "scripts" to return simple string
-    # import time
-    # time.sleep(5)
-    # scripts = "Working..."
-    app.logger.info("Test complete!")
     app.logger.info(response)
     return response

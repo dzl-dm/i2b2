@@ -1,0 +1,28 @@
+## Project technical user settings
+
+## Dict of acceptable fuseki sources
+fuseki_sources:
+  "local-cometar": "http://dwh.proxy/fuseki/cometar_live/query"
+  "DZL": "https://data.dzl.de/fuseki/cometar_live/query"
+
+max_processing_duration: 600 ## seconds
+## Map short codes to URL's - similar to the definitions in .ttl files, but they are not accessible via fuseki, so must be repeated
+generator_mappings:
+  "http://data.custom.de/ont/dwh#": "default:"
+  "http://data.dzl.de/ont/dwh#": "dzl:"
+  "http://purl.bioontology.org/ontology/SNOMEDCT/": "S:"
+  "http://loinc.org/owl#": "L:"
+  "http://sekmi.de/histream/dwh#snomed": "S:"
+  "http://sekmi.de/histream/dwh#loinc": "L:"
+
+## i2b2db_col_limits: Adjust i2b2 column types, useful to increase the charachter allowance for text fields
+## If the data is larger than the column allows, it will be trimmed before upload
+i2b2db_col_limits:
+  i2b2metadata: ## Schema name
+    i2b2: ## Table name
+      c_tooltip: "varchar(2000)"
+      c_fullname: "varchar(5000)"
+      c_visualattributes: "varchar(10)"
+    table_access: ## Table name
+      c_visualattributes: "varchar(10)"
+  i2b2demodata:

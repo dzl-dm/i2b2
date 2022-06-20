@@ -1,53 +1,17 @@
-## Project technical settings
+## Project technical internal settings
 
 ## Flask app context - muse be UPPER_CASE
 ## SQLALCHEMY_DATABASE_URI is built from individual environment variables by default
 # SQLALCHEMY_DATABASE_URI: "postgresql+psycopg2://i2b2:ChangeMe@i2b2.database/i2b2"
 SQLALCHEMY_TRACK_MODIFICATIONS : False
 
-## TODO: These should be user configurable via docker .env
-## These lower_case variables are ignored by flask's app.config context
-## Dict of acceptable fuseki sources
-fuseki_sources:
-  "local_cometar": "http://dwh.proxy/fuseki/cometar_live/query"
-  "DZL": "https://data.dzl.de/fuseki/cometar_live/query"
-
+## Where the local/manual metadata CSV files are mounted
+## (the structure under this tree defines the source_id, then naming of file is [<source_id>.]<schema>.<table>.csv)
 local_file_sources: "/var/translator-custom-metadata"
-## NOTE: File naming convention must be followed:
-## <source_id/queryname(as below)>.<database_schema>.<database_table>.*
-# local_file_sources:
-#   "custom_metadata": "/var/translator-custom-metadata"
-
-# /var/translator-custom-metadata
-#   ./demographics
-#     ./i2b2metadata.table_acces.csv
-#     ./i2b2metadata.i2b2.csv
-#   ./icd10
-
-#   ./DZL
-#     ./i2b2metadata.table_acces.csv
-#     ./i2b2metadata.i2b2.csv
-#     ./i2b2demodata.concept_dimension.csv
-#     ./i2b2demodata.modifier_dimension.csv
-#   ./local
-## TODO: Are we still using this prefix? I think the last parts (dates, source_ids) are done in memory from the csv file
-db_prepared_prefix: "dbready"
-# db_prepared_directory: "/tmp/meta-translation"
 ## This is for the temporary/intermediate csv files of data from remote sources (like fuseki)
 dynamic_metadata_directory: "/tmp/meta-translation"
-## TODO: What is this dir for?
-csv_out_dir: "/var/metadata-translation/"
 
-max_processing_duration: 600 ## seconds
-generator_mappings:
-  "http://data.custom.de/ont/dwh#": "default:"
-  "http://data.dzl.de/ont/dwh#": "dzl:"
-  "http://purl.bioontology.org/ontology/SNOMEDCT/": "S:"
-  "http://loinc.org/owl#": "L:"
-  "http://sekmi.de/histream/dwh#snomed": "S:"
-  "http://sekmi.de/histream/dwh#loinc": "L:"
-
-
+## Some of these could change when using custom i2b2 projects etc
 i2b2_path_prefix: "i2b2"
 i2b2_path_separator: '\'
 i2b2_multipath_container: "MULTI"
@@ -55,8 +19,8 @@ meta_schema: "i2b2metadata"
 ontology_tablename: "i2b2"
 data_schema: "i2b2demodata"
 
+## This map can use descending precedence lists to pick a variable which isn't null/empty
 sql_col_object_property_map:
-  ## This map can use descending precedence lists to pick a variable which isn't null/empty
   "c_fullname": "concept_long"
   "c_name": ["display_label", "pref_label"]
   "c_visualattributes": "visual_attribute"
@@ -67,16 +31,15 @@ sql_col_object_property_map:
   "i2b2metadata-table_access-c_tooltip": ["display_label", "pref_label"]
   "m_applied_path": "applied_path"
   "download_date": "fetch_timestamp"
-  "sourcesystem_cd": "sourcesystem"
-
+  # "sourcesystem_cd": "sourcesystem"
   "c_table_name": "ontology_tablename"
-
   "concept_path": "concept_long"
   "concept_cd": "notation"
   "modifier_path": "concept_long"
   "modifier_cd": "notation"
   "name_char": "pref_label"
 
+## The column is always a specific, fixed literal for this metadata system (theoretically could change with future developments of the app)
 fixed_value_cols:
   "c_synonym_cd": "N"
   "c_totalnum": ""
@@ -85,7 +48,6 @@ fixed_value_cols:
   "c_comment": ""
   "update_date": "current_timestamp"
   "import_date": "current_timestamp"
-  # "sourcesystem_cd": ""
   "valuetype_cd": ""
   "m_exclusion_cd": ""
   "c_path": ""
@@ -94,14 +56,3 @@ fixed_value_cols:
   "c_protected_access": "N"
   "c_ontology_protection": ""
   "i2b2metadata-table_access-c_basecode": ""
-
-
-i2b2db_col_limits:
-  i2b2metadata: ## Schema name
-    i2b2: ## Table name
-      c_tooltip: "varchar(2000)"
-      c_fullname: "varchar(5000)"
-      c_visualattributes: "varchar(10)"
-    table_access: ## Table name
-      c_visualattributes: "varchar(10)"
-  i2b2demodata:

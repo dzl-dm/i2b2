@@ -92,6 +92,7 @@ services:
       - 5000:5000
     volumes:
       - ./meta-python/src:/src:ro
+      - ./i2b2meta_user_config.yaml:/config/i2b2meta_user_config.yaml:ro
     ## Testing - END
     ## Attempt to limit resources - not well implemented for docker compose!
     deploy:

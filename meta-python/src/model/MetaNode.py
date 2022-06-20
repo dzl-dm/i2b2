@@ -425,59 +425,6 @@ class MetaNode(object):
             logger.error("Node ({}) must have a type! {}".format(self.name, node_type))
 
     @property
-    def meta_inserts(self) -> list:
-        """SQL inserts for the i2b2metadata i2b2 (and table_access dependant on need)"""
-        d = self.__dict__()
-        # logger.debug("computed members: {}".format(d))
-
-        ## meta_inserts' dict can have 2 entries, ontology and (optionally) table_access
-        inserts = {}
-        ## ontology can have multiple entries when there
-        inserts["ontology"] = []
-        ## Always insert the base node
-        inserts["ontology"].append(MetaNode._single_ontology_insert(d = d, meta_schema = app.config["meta_schema"], ontology_tablename = app.config["ontology_tablename"], sourcesystem = app.config["sourcesystem"]))
-        if self.notations and len(self.notations) >= 2:
-            ## If multiple notations, use NotationNode objects to populate the additional INSERT's
-            for notation_obj in self.notations.values():
-                inserts["ontology"].append(MetaNode._single_ontology_insert(d = notation_obj.__dict__(), meta_schema = app.config["meta_schema"], ontology_tablename = app.config["ontology_tablename"], sourcesystem = app.config["sourcesystem"]))
-
-        if self.top_level_node:
-            inserts["table_access"] = MetaNode._table_access_insert(d = d, meta_schema = app.config["meta_schema"], ontology_tablename = app.config["ontology_tablename"])
-        else:
-            inserts["table_access"] = None
-        
-        if inserts["table_access"] is not None:
-            all_inserts = [inserts["table_access"], *inserts["ontology"]]
-        else:
-            all_inserts = inserts["ontology"]
-        return all_inserts
-    @property
-    def data_inserts(self) -> list:
-        """SQL Insterts for the i2b2demodata - concept OR modifier"""
-        if not self.notations or len(self.notations) == 0:
-            ## When this is just a container/folder, there is nothing to do
-            return None
-        d = self.__dict__()
-        # logger.debug("computed members: {}".format(d))
-
-        if self.node_type == NodeType.CONCEPT:
-            concept_type_table = "concept_dimension"
-        elif self.node_type == NodeType.MODIFIER:
-            concept_type_table = "modifier_dimension"
-        else:
-            logger.error("This node ({}) should be a concept or modifier, its niether! {}".format(self.node_uri, self.node_type))
-            return None
-        ## data inserts occur once for each notation, but not for the containing concept (unless its a single notation)
-        inserts = []
-        if len(self.notations) == 1:
-            inserts.append(MetaNode._concept_insert(d = d, data_schema = app.config["data_schema"], concept_type_table = concept_type_table, sourcesystem = app.config["sourcesystem"]))
-        else:
-            for notation_obj in self.notations.values():
-                if notation_obj.notation is not None and notation_obj.notation != "":
-                    inserts.append(MetaNode._concept_insert(d = notation_obj.__dict__(), data_schema = app.config["data_schema"], concept_type_table = concept_type_table, sourcesystem = app.config["sourcesystem"]))
-        return inserts
-
-    @property
     def meta_csv(self) -> dict:
         """csv data with same format as i2b2metadata i2b2 and table_access tables"""
         d = self.__dict__()
@@ -563,39 +510,6 @@ class MetaNode(object):
         ## Deduplicate:
         self.child_nodes = list(set(self.child_nodes))
 
-    def whole_tree_inserts(self, inserts:dict = None) -> dict:
-        """2 lists of insert statements, one for each schema (meta/demodata)"""
-        logger.info("Adding SQL statements for '{}' ({}): {}".format(self.name, self.node_type_pretty, self.node_uri))
-        if inserts is None:
-            inserts = {"meta":[],"data":[]}
-        # if self.name == ":DemoData":
-        if self.top_level_node:
-            logger.debug("#### ~~~~ STARTING whole tree SQL ~~~~ ####")
-            logger.debug("Starting point for meta_sql: {}".format(inserts["meta"]))
-            logger.debug("Starting point for data_sql: {}".format(inserts["data"]))
-
-        meta_sql = self.meta_inserts
-        if meta_sql is not None:
-            inserts["meta"].extend(meta_sql)
-        # logger.debug("Added meta_sql: {}".format(meta_sql))
-
-        data_sql = self.data_inserts
-        if data_sql is not None:
-            inserts["data"].extend(data_sql)
-        # logger.debug("Added data_sql: {}".format(data_sql))
-
-        if self.child_nodes is not None and len(self.child_nodes) > 0:
-            # logger.debug("Getting SQL for children: {}".format(self.child_nodes))
-            for child in self.child_nodes:
-                inserts = child.whole_tree_inserts(inserts)
-        # if self.name == ":DemoData":
-        if self.top_level_node:
-            logger.debug("#### ~~~~ FINISHED whole tree SQL ~~~~ ####")
-            logger.debug("Finished meta_sql: {}".format(inserts["meta"]))
-            logger.debug("Finished data_sql: {}".format(inserts["data"]))
-            logger.debug("#### ~~~~ FINISHED whole tree SQL ~~~~ ####")
-        return inserts
-
     def whole_tree_csv(self, lines:dict = None) -> dict:
         """dict with 4 lists for each table in: i2b2metadata{table_access,i2b2}, i2b2demodata{concept_dimension,modifier_dimension}"""
         logger.info("Adding csv lines for '{}' ({}): {}".format(self.name, self.node_type_pretty, self.node_uri))
@@ -636,75 +550,6 @@ class MetaNode(object):
             logger.debug("Finished data_csv - (concept_dimension: {}) (modifier_dimension: {})".format(len(lines["i2b2demodata"]["concept_dimension"]), len(lines["i2b2demodata"]["concept_dimension"])))
             logger.debug("#### ~~~~ FINISHED whole tree CSV ~~~~ ####")
         return lines
-
-    @classmethod
-    def _single_ontology_insert(cls, d, meta_schema, ontology_tablename, sourcesystem) -> str:
-        """Return SQL line for single notation insert to ontology table"""
-        d["meta_schema"] = meta_schema
-        d["ontology_tablename"] = ontology_tablename
-        d["sourcesystem"] = sourcesystem
-        if d["notation"] == "":
-            d["notation"] = "NULL"
-        # logger.debug("Using dict for sql writing: {}".format(d))
-        notation_sql = """INSERT INTO {meta_schema}.{ontology_tablename} (
-            c_hlevel,c_fullname,c_name,c_synonym_cd,c_visualattributes,
-            c_basecode,c_metadataxml,c_facttablecolumn,c_tablename,c_columnname,
-            c_columndatatype,c_operator,c_dimcode,c_tooltip,m_applied_path,
-            update_date,download_date,import_date,sourcesystem_cd)
-        VALUES(
-            {c_hlevel},'{concept_long}','{pref_label}','N','{visual_attribute}',
-            '{notation}','{datatype_xml}','{c_facttablecolumn}','{c_tablename}','{c_columnname}',
-            'T','LIKE','{concept_long}','{description}','{applied_path}',
-            current_timestamp,'{fetch_timestamp}',current_timestamp,'{sourcesystem}'
-        );\n""".format(**d)
-        notation_sql = notation_sql.replace("\t", " ").replace("\n", " ")
-        ## Combine multiple spaces to single space
-        notation_sql = " ".join(notation_sql.split())
-        return notation_sql
-    @classmethod
-    def _table_access_insert(cls, d, meta_schema, ontology_tablename) -> str:
-        """Return SQL line for table access entry"""
-        d["meta_schema"] = meta_schema
-        d["ontology_tablename"] = ontology_tablename
-        # logger.debug("Using dict for sql writing: {}".format(d))
-        top_level_sql = """INSERT INTO {meta_schema}.table_access (
-					c_table_cd,c_table_name,c_protected_access,c_hlevel,c_fullname,
-					c_name,c_synonym_cd,c_visualattributes,c_facttablecolumn,c_dimtablename,
-					c_columnname,c_columndatatype,c_operator,c_dimcode,c_tooltip
-				) VALUES(
-					'i2b2_{sourcesystem_cd}_{concept_long_hash8}','{ontology_tablename}','N',1,'{concept_long}',
-					'{pref_label}','N','{visual_attribute}','concept_cd','concept_dimension',
-					'concept_path','T','LIKE','{concept_long}','{pref_label}'
-				);\n""".format(**d)
-        top_level_sql = top_level_sql.replace("\t", " ").replace("\n", " ")
-        ## Combine multiple spaces to single space
-        top_level_sql = " ".join(top_level_sql.split())
-        return top_level_sql
-
-    @classmethod
-    def _concept_insert(cls, d, data_schema, concept_type_table, sourcesystem) -> str:
-        """Return SQL line for single concept to data table"""
-        d["data_schema"] = data_schema
-        d["concept_type_table"] = concept_type_table
-        d["sourcesystem"] = sourcesystem
-        if d["notation"] == "":
-            d["notation"] = "NULL"
-        # logger.debug("Using dict for sql writing: {}".format(d))
-        d['ct'] = "concept"
-        if concept_type_table == "modifier_dimension":
-            d['ct'] = "modifier"
-        # logger.debug("Set d['ct'] to '{}' based on table_type: {}".format(d['ct'], concept_type_table))
-        concept_sql = """INSERT INTO {data_schema}.{concept_type_table} (
-				{ct}_path,{ct}_cd,name_char,update_date,
-				download_date,import_date,sourcesystem_cd
-			) VALUES(
-				'{concept_long}','{notation}','{pref_label}',current_timestamp,
-				'{fetch_timestamp}',current_timestamp,'{sourcesystem}'
-			);\n""".format(**d)
-        concept_sql = concept_sql.replace("\t", " ").replace("\n", " ")
-        ## Combine multiple spaces to single space
-        concept_sql = " ".join(concept_sql.split())
-        return concept_sql
 
     @classmethod
     def _data_to_csv(cls, ordered_cols:list, d:dict, delim:str = ";", table_name:str = None, schema_name:str = None) -> list:
@@ -756,31 +601,6 @@ class MetaNode(object):
                 line = [new_value]
             else:
                 line.append(new_value)
-        return line
-    @classmethod
-    def _data_to_csv_OLD(cls, ordered_cols:list, d:dict, delim:str = ";") -> str:
-        """Generate a csv line given the columns and data provided"""
-        first = True
-        line = ""
-        d["ontology_tablename"] = app.config["ontology_tablename"]
-        for col_name in ordered_cols:
-            new_value = ""
-            if col_name in app.config["fixed_value_cols"]:
-                ## Inject fixed values for some columns (see sql inserts)
-                new_value = str(app.config["fixed_value_cols"].get(col_name, ""))
-            elif col_name in app.config["sql_col_object_property_map"]:
-                ## Lookup name map as sql cols differ from attribute/property names here
-                real_property = str(app.config["sql_col_object_property_map"].get(col_name, ""))
-                new_value = str(d.get(real_property, ""))
-                logger.debug("mismatched sql({})/object({}) name for '{}', value: {}".format(col_name, real_property, d["pref_label"], new_value))
-            else:
-                new_value = str(d.get(col_name, ""))
-                logger.debug("Matched and available col_name ({}) name for '{}', value: {}".format(col_name, d["pref_label"], new_value))
-            if first:
-                first = False
-                line = new_value
-            else:
-                line += "{}{}".format(delim, new_value)
         return line
 
     def __dict__(self):

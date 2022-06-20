@@ -23,10 +23,11 @@ import csv
 
 ## TODO:
 # Currently hard coded ; as csv delimiter
+global_csv_delimiter = ";"
 
 ## Use these as prefixes for the filenames (value is sourcesystem_cd used)
-# sources:dict[str:str] = {"dzl": "test", "local": "DZL"} ## local: DZL for locally processed but DZL cometar sourced
-sources:dict[str:str] = {"dzl": "test", "local": "local"} ## local: local for dzl cometar data committed to local cometar
+sources:dict[str:str] = {"dzl": "test", "local": "DZL"} ## local: DZL for locally processed but DZL cometar sourced
+# sources:dict[str:str] = {"dzl": "test", "local": "local-cometar"} ## local: local for dzl cometar data committed to local cometar
 ## Use this for the csv once its had non-comparable columns removed and is sorted etc
 suffix:str = "slim"
 ## Which columns to keep:
@@ -52,11 +53,11 @@ def trim_data(source_label:str, source_cd:str, table_cols_to_keep:dict[str:list[
             logger.error("Input file ({}) doesn't exist!".format(in_file))
             return False
         with open(in_file, 'r', encoding='utf-8') as base, open(tmp_file, 'w', encoding='utf-8') as unsorted_file:
-            reader = csv.DictReader(base, skipinitialspace=True, delimiter = ";")
+            reader = csv.DictReader(base, skipinitialspace=True, delimiter = global_csv_delimiter)
             ## Loop cols if in reader.fieldnames for consistent col ordering - there shouldn't be and cols not in fieldnames!
             output_fields = [x for x in cols if x in reader.fieldnames]
             logger.debug("Fieldnames from reader vs output_fields:\n{}\n{}".format(reader.fieldnames, output_fields))
-            writer = csv.DictWriter(unsorted_file, fieldnames=list(output_fields), delimiter = ";")
+            writer = csv.DictWriter(unsorted_file, fieldnames=list(output_fields), delimiter = global_csv_delimiter)
             logger.debug("Writing relevant, shortened lines...")
             writer.writeheader()
             for line in reader:
@@ -73,8 +74,8 @@ def trim_data(source_label:str, source_cd:str, table_cols_to_keep:dict[str:list[
         logger.debug("Temp file written...")
         ## Sort files
         # with open(tmp_file, 'r', encoding='utf-8') as unsorted_file, open(out_file, 'w', encoding='utf-8') as prepared_file:
-        #     reader = csv.DictReader(unsorted_file, skipinitialspace=True, delimiter=";")
-        #     writer = csv.DictWriter(prepared_file, fieldnames = reader.fieldnames, delimiter=";")
+        #     reader = csv.DictReader(unsorted_file, skipinitialspace=True, delimiter=global_csv_delimiter)
+        #     writer = csv.DictWriter(prepared_file, fieldnames = reader.fieldnames, delimiter=global_csv_delimiter)
         #     # TODO: Loop to sort by all columns
         #     sortby_col = reader.fieldnames[0]
         #     sortby_col2 = reader.fieldnames[1]
