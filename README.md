@@ -74,8 +74,10 @@ export DS_WD_PASS=wd-pass
 ## Adjust your .env
 The directory has a `.env` file which is used by docker to put environment variables into the containers. It also allows the `docker compose` process to use them which can aid deployments. The .env provided covers a range of variables i2b2 can use, most of which will not need changing. For setting up on a remote server, the relevant fields should be changed.
 
-## _Optional: Disable the api_
-If you do not intend to use it, you may disable the API by simply deleting the section from `docker-compose.yml`. The relevant section start with `i2b2-api:` and includes all sub-indented lines. If the api component is not available, the bootstrap for the web component will not attempt to proxy it.
+## _Optional: Disable components_
+If you do not intend to use a feature beyond the core components, you may disable the them by simply deleting the section from `docker-compose.yml`. See the list below for the names of the relevant sections, when deleting, include all sub-indented lines. If these components are not available, the bootstrap for the core components will gracefully ignore them.
+* API (docker-compose section "i2b2-api")
+  * metadata translator (docker-compose section "i2b2-meta")
 
 ## Deploy containers
 Once all the settings are done, you can deploy the containers to your system. This follows regular docker commands so no special setup should be needed. From the base directory of the project (where you have the `docker-compose.yml` file), run the following:
@@ -187,4 +189,26 @@ openssl enc -aes-256-cbc -d -in <dir_name>_restore.tar.gz.enc | tar xvzf <target
 This will restore the archive data to the volume location (target_dir_name) - this is uaually best done while the container is stopped. Then the container can be restarted.
 
 # REST API
-We are introducing a REST API to provide programmable access to certain features. This complements the i2b2 product but is not required. It is currently a work in progress.
+We are introducing a REST API to provide programmable access to certain features. This complements the i2b2 product but is not required. It is currently a work in progress. Below are the feature which the API supports
+
+## Metadata translator
+This feature allows metadata from external sources to be translated and imported to the i2b2 tree so they can be used in the query builder.
+
+The following external sources are supported
+
+* ### Data which has been generated for [CoMetaR](https://github.com/dzl-dm/cometar) can be automatically fetched when it is updated (CoMetaR notifies the API)
+For i2b2, the name and fuseki endpoint must be configured in `i2b2meta_user_config.yaml` under "fuseki_sources"
+Additionally, the name must be configured for the CoMetaR system so it is recognised when notifying the API
+
+* ### File based custom metadata
+These are mounted under a volume defined in the `docker-compose.yml` file. The CSV files should reflect the structure of the i2b2 database, so its is a pre-requisite to have some familiarity with the database tables and structure. The sourcesystem_cd or "source ID" is taken from the directory name and automatically added to the data when it is added to i2b2
+
+### Further information
+
+In some cases, it may be necessary to manually trigger an update or remove data from i2b2. You can make an http get request to these API endpoints:
+```sh
+<i2b2-host>/i2b2-api/updatemeta/<source name> ## To fetch a source (defined in config or local CSV files)
+<i2b2-host>/i2b2-api/flushmeta/<source name> ## To clear a source from the i2b2 database (it won't touch the source, regardless if that's a remote fuseki server or local csv files)
+<i2b2-host>/i2b2-api/update-patient-counts ## i2b2 shows a matching patient count in parenthesis after each tree entry, this needs updating when the metadata changes (usually automatic)
+```
+
