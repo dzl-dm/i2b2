@@ -69,35 +69,54 @@ def index():
 @app.route('/flush-metadata/<source_id>')
 def flush(source_id:str = None):
     """Flush any existing data with the given source id - both local files and i2b2 database?"""
+    if source_id is None:
+        source_id = request.args.get('source_id')
     app.logger.info("Running flush route to remove metadata with source_id '{}' from i2b2 and local files...".format(source_id))
     ## TODO: Should we allow flushing local files and database separately?
     response = {}
     response['status_code'] = 500
     response['content'] = ""
-    if source_id is None:
-        source_id = request.args.get('source_id')
     if source_id:
         app.logger.info("Attempting to remove data associated with source: {}".format(source_id))
+        db_conns = {}
         try:
-            db_conn = connection.get_database_connection(
+            ## Create the data manager connection and 1 for each scheme
+            db_conns["dm"] = connection.get_database_connection(
                 os.getenv("I2B2DBHOST"),
                 os.getenv("I2B2DBNAME"),
                 os.getenv("DB_ADMIN_USER"),
                 os.getenv("DB_ADMIN_PASS")
             )
-            if meta.clean_sources_in_database(db_conn, [source_id]):
-                db_conn.commit()
+            db_conns[os.getenv("DS_CRC_DB")] = connection.get_database_connection(
+                os.getenv("I2B2DBHOST"),
+                os.getenv("I2B2DBNAME"),
+                os.getenv("DS_CRC_USER"),
+                os.getenv("DS_CRC_PASS")
+            )
+            db_conns[os.getenv("DS_ONT_DB")] = connection.get_database_connection(
+                os.getenv("I2B2DBHOST"),
+                os.getenv("I2B2DBNAME"),
+                os.getenv("DS_ONT_USER"),
+                os.getenv("DS_ONT_PASS")
+            )
+            if meta.clean_sources_in_database(db_conns, [source_id]):
+                for db_conn in db_conns.values():
+                    db_conn.commit()
                 response['status_code'] = 200
                 response['content'] = "Source data removed from database for source_id: '{}'".format(source_id)
             else:
-                db_conn.rollback()
+                app.logger.debug("Rollingback database for connections: {}".format(list(db_conns.keys())))
+                for db_conn in db_conns.values():
+                    db_conn.rollback()
                 response['status_code'] = 500
                 response['content'] = "Unable to clean source data in database for source_id: '{}'".format(source_id)
         except:
-            db_conn.rollback()
+            for db_conn in db_conns.values():
+                db_conn.rollback()
             app.logger.error("Error flushing data for source_id: '{}'\n{}".format(source_id, Exception))
         finally:
-            db_conn.close()
+            for db_conn in db_conns.values():
+                db_conn.close()
     else:
         response['status_code'] = 400
         response['content'] = "source_id not provided: '{}'".format(source_id)
@@ -233,19 +252,34 @@ def load_data(source_id:list = None):
         response["content"] += "\n{}".format(new_message)
         app.logger.warn(new_message)
         return response
-    db_conn = connection.get_database_connection(
+    db_conns = {}
+    ## Create the data manager connection and 1 for each scheme
+    db_conns["dm"] = connection.get_database_connection(
         os.getenv("I2B2DBHOST"),
         os.getenv("I2B2DBNAME"),
         os.getenv("DB_ADMIN_USER"),
         os.getenv("DB_ADMIN_PASS")
+    )
+    db_conns[os.getenv("DS_CRC_DB")] = connection.get_database_connection(
+        os.getenv("I2B2DBHOST"),
+        os.getenv("I2B2DBNAME"),
+        os.getenv("DS_CRC_USER"),
+        os.getenv("DS_CRC_PASS")
+    )
+    db_conns[os.getenv("DS_ONT_DB")] = connection.get_database_connection(
+        os.getenv("I2B2DBHOST"),
+        os.getenv("I2B2DBNAME"),
+        os.getenv("DS_ONT_USER"),
+        os.getenv("DS_ONT_PASS")
     )
     if source_type == "fuseki":
         delim = ","
     else:
         delim = ";"
     # if meta.push_csv_to_database(db_conn, prepared_file_paths):
-    if meta.push_csv_to_database(db_conn, source_id, source_file_paths, delim):
-        db_conn.commit()
+    if meta.push_csv_to_database(db_conns, source_id, source_file_paths, delim):
+        for db_conn in db_conns.values():
+            db_conn.commit()
         new_message = "Pushing CSV metadata to database has succeeded!"
         response['content'] += "\n{}".format(new_message)
         app.logger.info(new_message)
@@ -268,13 +302,27 @@ def update_patient_counts():
     response = {}
     response['status_code'] = 500
     response['content'] = ""
-    db_conn = connection.get_database_connection(
+    db_conns = {}
+    ## Create the data manager connection and 1 for each scheme
+    db_conns["dm"] = connection.get_database_connection(
         os.getenv("I2B2DBHOST"),
         os.getenv("I2B2DBNAME"),
         os.getenv("DB_ADMIN_USER"),
         os.getenv("DB_ADMIN_PASS")
     )
-    if meta.update_patient_count(db_conn=db_conn):
+    db_conns[os.getenv("DS_CRC_DB")] = connection.get_database_connection(
+        os.getenv("I2B2DBHOST"),
+        os.getenv("I2B2DBNAME"),
+        os.getenv("DS_CRC_USER"),
+        os.getenv("DS_CRC_PASS")
+    )
+    db_conns[os.getenv("DS_ONT_DB")] = connection.get_database_connection(
+        os.getenv("I2B2DBHOST"),
+        os.getenv("I2B2DBNAME"),
+        os.getenv("DS_ONT_USER"),
+        os.getenv("DS_ONT_PASS")
+    )
+    if meta.update_patient_count(db_conns=db_conns):
         response['content'] += "{}\n".format("Database updated with patient counts!")
         response['status_code'] = 200
         app.logger.info("Processing successfully completed!")

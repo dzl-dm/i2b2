@@ -34,9 +34,11 @@ def _source_type(source_id:str) -> str:
     ## TODO: Use source_type enum?
     ## TODO: Use config for type_name and check function etc
     source_type = "unknown"
+    local_sources = os.listdir(app.config["local_file_sources"])
+    logger.debug("Local sources available from '{}': {}".format(app.config["local_file_sources"], local_sources))
     if source_id in app.config["fuseki_sources"].keys():
         source_type = "fuseki"
-    elif source_id in os.listdir(app.config["local_file_sources"]):
+    elif source_id in local_sources:
         source_type = "local_files"
     return source_type
 
@@ -150,32 +152,41 @@ def write_csv(csv_tree:dict, sourcesystem_id:str, out_dir:str, output_delim:str 
         logger.error("Failed to write CSV data: {}".format(e))
         return False
 
-def update_col_limits(db_conn, schema:str, table:str, limits:dict = None) -> bool:
+def update_col_limits(db_conns, schema:str, table:str, limits:dict = None) -> bool:
     """Set limits for any defined cols the schema/table
     :param limits: {col_name: col_type} - where an entry exists in this dict, it will be updated
     """
     logger.info("Updating col datatype and limits for '{}.{}'...\n{}".format(schema, table, limits))
-    cursor = db_conn.cursor()
+    if schema in db_conns:
+        use_conn = schema
+        logger.debug("Found matching connection for schema '{}'".format(schema))
+    else:
+        ## TODO: Pass default programatically
+        use_conn = "dm"
+        logger.debug("No matching connection for schema '{}', using default".format("dm"))
+    cursor = db_conns[use_conn].cursor()
     result = False
     if limits:
         try:
             for col_name, col_type in limits.items():
                 cursor.execute("ALTER TABLE {}.{} ALTER COLUMN {} TYPE {};".format(schema, table, col_name, col_type))
                 logger.debug("Ran ALTER query: {}".format(cursor.query))
-            db_conn.commit()
+            db_conns[use_conn].commit()
             result = True
         except Exception as e:
             ## TODO: This can fail if an existing entry is too long - we download data, update limits, trim data and re-upload
             logger.error("Failed to update limits for '{}.{}': {}\n{}".format(schema, table, limits, e))
-            db_conn.rollback()
+            db_conns[use_conn].rollback()
         finally:
             cursor.close()
     return result
 
-def _get_col_limits(db_conn, schema:str, table:str) -> dict:
+def _get_col_limits(db_conns, schema:str, table:str) -> dict:
     """Get limits for all cols in the schema/table"""
     logger.debug("Getting cols for '{}.{}'...".format(schema, table))
-    cursor = db_conn.cursor()
+    use_conn = "dm"
+    logger.debug("Read only query, use data manager connection: '{}'".format("dm"))
+    cursor = db_conns[use_conn].cursor()
     cursor.execute("SELECT column_name, data_type, character_maximum_length AS max_length FROM information_schema.columns WHERE table_schema = '{}' AND table_name = '{}';".format(schema, table))
     tmp = cursor.fetchall()
     # logger.debug("Fetchall: {}".format(tmp))
@@ -241,26 +252,44 @@ def add_source(row:dict, source_id:str, schema = None, table = None) -> tuple[di
         new_row = row
     return new_row, changed
 
-def clean_sources_in_database(db_conn, source_ids:list):
+def clean_sources_in_database(db_conns, source_ids:list):
     """DELETE selectively based on the source_ids"""
     ## TODO: Get prepared query from file
     ## TODO: Should this be in a different module?
-    translator_deletes = """
+    translator_deletes:dict = {}
+    translator_deletes["i2b2metadata"] = """
         DELETE FROM i2b2metadata.table_access WHERE c_table_cd LIKE %s;
         DELETE FROM i2b2metadata.i2b2 WHERE sourcesystem_cd=%s;
+    """
+    translator_deletes["i2b2demodata"] = """
         DELETE FROM i2b2demodata.concept_dimension WHERE sourcesystem_cd=%s;
         DELETE FROM i2b2demodata.modifier_dimension WHERE sourcesystem_cd=%s;
     """
-    try:
-        cursor = db_conn.cursor()
-        for source_id in source_ids:
-            cursor.execute(translator_deletes, ["i2b2_{}_%".format(source_id), *[source_id] * 3])
-        logger.debug("DELETEd source_ids: {}\n{}".format(source_ids, cursor.query))
-        return True
-    except Exception as e:
-        db_conn.rollback()
-        logger.error("Failed to complete database DELETEs...\n{}".format(e))
-        return False
+    logger.debug("Running deletes for: {}".format(list(translator_deletes.keys())))
+    queries:list = []
+    for schema in list(translator_deletes.keys()):
+        try:
+            if schema in db_conns:
+                use_conn = schema
+                logger.debug("Found matching connection for schema '{}'".format(schema))
+            else:
+                ## TODO: Pass default programatically
+                use_conn = "dm"
+                logger.debug("No matching connection for schema '{}', using default".format("dm"))
+            cursor = db_conns[use_conn].cursor()
+            for source_id in source_ids:
+                if schema == "i2b2metadata":
+                    cursor.execute(translator_deletes[schema], ["i2b2\\_{}\\_%".format(source_id), source_id])
+                elif schema == "i2b2demodata":
+                    cursor.execute(translator_deletes[schema], [source_id] * 2)
+            logger.debug("Running specific deletes for: {}".format(schema))
+            queries.append(cursor.query)
+        except Exception as e:
+            db_conns[use_conn].rollback() ## This is also rolled back in the calling function if we return False
+            logger.error("Failed to complete database DELETEs...\n{}".format(e))
+            return False
+    logger.debug("DELETEd source_ids: {}\n{}".format(source_ids, queries))
+    return True
 
 def update_headers(row:dict, table_headers:list) -> tuple[dict, bool]:
     """Compare headers in use (possibly from CSV file) and table headers to ensure nothing critical is missing
@@ -275,7 +304,7 @@ def update_headers(row:dict, table_headers:list) -> tuple[dict, bool]:
         changed = True
     return new_row, changed
 
-def push_csv_to_database(db_conn, source_id:str, prepared_file_paths:list, delim:str = ","):
+def push_csv_to_database(db_conns, source_id:str, prepared_file_paths:list, delim:str = ","):
     """Push any csv data which is listed to the database
     
     Sniffs for header line so should work with or without heading line - using database columns if no header
@@ -297,10 +326,9 @@ def push_csv_to_database(db_conn, source_id:str, prepared_file_paths:list, delim
             for current_schema, current_tables in type_limits.items():
                 if current_tables:
                     for current_table, table_limits in current_tables.items():
-                        update_col_limits(db_conn, current_schema, current_table, table_limits)
+                        update_col_limits(db_conns, current_schema, current_table, table_limits)
                         # logger.debug("Col limits after updating: {}".format(_get_col_limits(db_conn, current_schema, current_table)))
         try:
-            cursor = db_conn.cursor()
             for csv_filepath in prepared_file_paths:
                 csv_filename = os.path.basename(csv_filepath)
                 ## TOOD: More sanity checks, this is making dangerous assumptions about the file naming policy
@@ -316,15 +344,24 @@ def push_csv_to_database(db_conn, source_id:str, prepared_file_paths:list, delim
                     current_table,
                     delim
                     ))
+                if current_schema in db_conns:
+                    use_conn = current_schema
+                    logger.debug("Found matching connection for schema '{}'".format(current_schema))
+                else:
+                    ## TODO: Pass default programatically
+                    use_conn = "dm"
+                    logger.debug("No matching connection for schema '{}', using default".format("dm"))
+                cursor = db_conns[use_conn].cursor()
                 ## Get dict of cols and length so we can update and trim our data to fit
-                col_limits = _get_col_limits(db_conn, current_schema, current_table)
+                col_limits = _get_col_limits(db_conns, current_schema, current_table)
                 with open(csv_filepath, 'r') as f:
                     ## Check for header line and reset to start of file
                     file_headers = None
                     has_header = False
                     reader = csv.reader(f, delimiter = delim)
                     first_line = next(reader)
-                    table_headers = list(_get_col_limits(db_conn, current_schema, current_table).keys())
+                    # table_headers = list(_get_col_limits(db_conns, current_schema, current_table).keys())
+                    table_headers = list(col_limits.keys())
                     logger.debug("Got headers from database table... {}".format(table_headers))
                     logger.debug("Checking headers in file '{}' - first line: {}".format(csv_filepath, first_line))
                     non_header_test = ["", "null", "current_timestamp"]
@@ -382,14 +419,15 @@ def push_csv_to_database(db_conn, source_id:str, prepared_file_paths:list, delim
                 logger.info("INSERTed values for '{}.{}' Added source: {}".format(current_schema, current_table, changed))
             return True
         except Exception as e:
-            db_conn.rollback()
+            # db_conn.rollback() ## Handled by calling function
             logger.error("Failed to complete database INSERTs...\n{}".format(e))
             return False
 
-def update_patient_count(db_conn) -> bool:
+def update_patient_count(db_conns) -> bool:
     """Run the patient count SQL against the i2b2 postgres database"""
     patientcount_update_resource_file = "patient_count.sql"
     logger.info("Updating patient counts in i2b2 by running file: {}".format(patientcount_update_resource_file))
-    query_success = queries.run_sql_file(db_conn, patientcount_update_resource_file)
-    # PGPASSWORD=$DB_ADMIN_PASS /usr/bin/psql -v ON_ERROR_STOP=1 -v statement_timeout=120000 -L "$TEMPDIR/postgres.log" -q --host=$I2B2DBHOST --username=$DB_ADMIN_USER --dbname=$I2B2DBNAME -f "/patient_count.sql" | tee -a "$LOGFILE"
+    use_conn = "dm"
+    logger.debug("Using data manager connection '{}'...".format("dm"))
+    query_success = queries.run_sql_file(db_conns[use_conn], patientcount_update_resource_file)
     return query_success
